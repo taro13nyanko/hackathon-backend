@@ -1,0 +1,7 @@
+# 秘密情報は絶対にコミットしない
+.env
+*.pem
+# ビルド成果物
+*.exe
+/server
+/hackathon-backend
