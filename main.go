@@ -34,10 +34,10 @@ func main() {
 	itemCtrl.Register(mux) // GET/POST /items, GET /items/{id}
 	mux.Handle("/user", userCtrl)
 	mux.HandleFunc("/users", userCtrl.ListHandler)
-	// 動作確認用（DB まで届くか見る）
-	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
+	// 動作確認用（DB まで届くか見る）。Cloud Run では z で終わるパス（/healthz）は予約されていて届かないので /health にする
+	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
 		if err := db.PingContext(r.Context()); err != nil {
-			log.Printf("fail: healthz ping, %v", err)
+			log.Printf("fail: health ping, %v", err)
 			w.WriteHeader(http.StatusServiceUnavailable)
 			return
 		}
