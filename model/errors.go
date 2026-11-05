@@ -11,3 +11,10 @@ var (
 	ErrAlreadySold = errors.New("already sold") // 売り切れ
 	ErrOwnItem     = errors.New("own item")     // 自分が出品した商品
 )
+
+var (
+	// ErrForbidden はやりとりの参加者でない人が見ようとしたとき（→ 403）。
+	ErrForbidden = errors.New("forbidden")
+	// ErrNoSeller は出品者がいない商品（見本データ）にメッセージを送ろうとしたとき（→ 409）。
+	ErrNoSeller = errors.New("no seller")
+)

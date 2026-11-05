@@ -43,11 +43,16 @@ func main() {
 		Items:     items,
 		Auth:      authz,
 	}
+	dmCtrl := &controller.DMController{
+		Usecase: &usecase.DMUsecase{Store: &dao.DMDao{DB: db}, Items: &dao.ItemDao{DB: db}},
+		Auth:    authz,
+	}
 
 	mux := http.NewServeMux()
 	itemCtrl.Register(mux)     // GET/POST /items, GET /items/{id}
 	meCtrl.Register(mux)       // GET/POST /me
 	purchaseCtrl.Register(mux) // POST /items/{id}/purchase, GET /me/items, GET /me/purchases
+	dmCtrl.Register(mux)       // POST /items/{id}/conversations, GET /conversations, GET/POST /conversations/{id}/messages
 	mux.Handle("/user", userCtrl)
 	mux.HandleFunc("/users", userCtrl.ListHandler)
 	// 動作確認用（DB まで届くか見る）。Cloud Run では z で終わるパス（/healthz）は予約されていて届かないので /health にする

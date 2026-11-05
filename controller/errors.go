@@ -27,6 +27,10 @@ func writeErr(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusConflict, "already_sold")
 	case errors.Is(err, model.ErrOwnItem):
 		writeError(w, http.StatusConflict, "own_item")
+	case errors.Is(err, model.ErrNoSeller):
+		writeError(w, http.StatusConflict, "no_seller")
+	case errors.Is(err, model.ErrForbidden):
+		writeError(w, http.StatusForbidden, "forbidden")
 	default:
 		log.Printf("fail: %v", err)
 		writeError(w, http.StatusInternalServerError, "internal")
