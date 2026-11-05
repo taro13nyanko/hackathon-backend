@@ -54,7 +54,7 @@ UTTC ハッカソン用のバックエンド（Go）。Cloud Run で動かし、
 | `MYSQL_HOST` | `unix(/cloudsql/<接続名>)` | `tcp(127.0.0.1:3306)`（省略時もこれ） |
 | `ALLOWED_ORIGINS` | `https://<あなたの>.vercel.app` | `http://localhost:5173` |
 | `FIREBASE_PROJECT_ID` | 設定しない（省略時 `uttc-c10-yusuke-ota-5da712`） | 同左 |
-| `GEMINI_MODEL` | 設定しない（省略時 `gemini-flash-latest`） | 同左 |
+| `GEMINI_MODEL` | 設定しない（省略時 `gemini-3.5-flash-lite`。2027-07 まで提供） | 同左 |
 | `GOOGLE_CLOUD_LOCATION` | 設定しない（省略時 `global`） | 同左 |
 | `PORT` | Cloud Run が自動で入れる（設定しない） | 省略時 8000 |
 

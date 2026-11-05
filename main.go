@@ -49,7 +49,7 @@ func main() {
 		Usecase: &usecase.DescriptionUsecase{Gen: &gemini.Client{
 			Project:  envOr("GOOGLE_CLOUD_PROJECT", projectID),
 			Location: envOr("GOOGLE_CLOUD_LOCATION", "global"),
-			Model:    envOr("GEMINI_MODEL", "gemini-flash-latest"),
+			Model:    envOr("GEMINI_MODEL", "gemini-3.5-flash-lite"),
 		}},
 		Auth: authz,
 	}
