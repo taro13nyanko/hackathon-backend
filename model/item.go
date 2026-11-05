@@ -15,11 +15,12 @@ type Item struct {
 	Description string    `json:"description"`
 	Price       int       `json:"price"`
 	Status      string    `json:"status"`
+	Seller      *Seller   `json:"seller"` // 見本データは null
 	CreatedAt   time.Time `json:"created_at"`
 }
 
 // ItemCreateReq は POST /items のリクエストボディ。
-// 出品者（seller_id）はログイン機能を入れた段階で、ログイン情報から付ける。
+// 出品者はボディではなく、ログイン情報（ID トークン）から付ける。
 type ItemCreateReq struct {
 	Title       string `json:"title"`
 	Description string `json:"description"`

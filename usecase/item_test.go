@@ -62,7 +62,7 @@ func TestCreateItemValidation(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			store := &fakeItemStore{}
 			uc := &ItemUsecase{Store: store}
-			res, err := uc.Create(c.req)
+			res, err := uc.Create(testSeller, c.req)
 			if c.ok {
 				if err != nil || len(res.Id) != 26 {
 					t.Fatalf("want ok with 26-char id, got id=%q err=%v", res.Id, err)
@@ -86,7 +86,7 @@ func TestCreateItemSetsFields(t *testing.T) {
 	store := &fakeItemStore{}
 	fixed := time.Date(2026, 11, 1, 12, 0, 0, 500, time.UTC)
 	uc := &ItemUsecase{Store: store, Now: func() time.Time { return fixed }}
-	if _, err := uc.Create(model.ItemCreateReq{Title: "  机  ", Description: " 脚にキズ ", Price: 3000}); err != nil {
+	if _, err := uc.Create(testSeller, model.ItemCreateReq{Title: "  机  ", Description: " 脚にキズ ", Price: 3000}); err != nil {
 		t.Fatal(err)
 	}
 	got := store.items[0]
@@ -104,7 +104,7 @@ func TestCreateItemSetsFields(t *testing.T) {
 func TestCreateItemStoreError(t *testing.T) {
 	boom := errors.New("db down")
 	uc := &ItemUsecase{Store: &fakeItemStore{err: boom}}
-	if _, err := uc.Create(model.ItemCreateReq{Title: "a", Price: 1000}); !errors.Is(err, boom) {
+	if _, err := uc.Create(testSeller, model.ItemCreateReq{Title: "a", Price: 1000}); !errors.Is(err, boom) {
 		t.Fatalf("DB のエラーはそのまま返す: got %v", err)
 	}
 }
@@ -130,5 +130,21 @@ func TestGetItem(t *testing.T) {
 	}
 	if _, err := uc.Get(""); !errors.Is(err, ErrInvalidInput) {
 		t.Fatalf("want ErrInvalidInput, got %v", err)
+	}
+}
+
+var testSeller = model.Member{Id: "01JBXSELLER000000000000000", DisplayName: "ota"}
+
+func TestCreateItemNeedsSeller(t *testing.T) {
+	store := &fakeItemStore{}
+	uc := &ItemUsecase{Store: store}
+	if _, err := uc.Create(model.Member{}, model.ItemCreateReq{Title: "a", Price: 1000}); !errors.Is(err, ErrInvalidInput) {
+		t.Fatalf("出品者なしは ErrInvalidInput: %v", err)
+	}
+	if _, err := uc.Create(testSeller, model.ItemCreateReq{Title: "a", Price: 1000}); err != nil {
+		t.Fatal(err)
+	}
+	if s := store.items[0].Seller; s == nil || s.Id != testSeller.Id || s.DisplayName != "ota" {
+		t.Fatalf("出品者を付けること: %+v", s)
 	}
 }

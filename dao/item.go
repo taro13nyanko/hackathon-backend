@@ -13,19 +13,35 @@ type ItemDao struct {
 	DB *sql.DB
 }
 
-const itemColumns = "id, title, description, price, status, created_at"
+// 出品者の表示名は users から LEFT JOIN で取る（見本データは出品者なし → seller は null）。
+const itemSelect = "SELECT i.id, i.title, i.description, i.price, i.status, i.created_at, u.id, u.display_name" +
+	" FROM item i LEFT JOIN users u ON u.id = i.seller_id"
+
+type scanner interface{ Scan(dest ...any) error }
+
+func scanItem(s scanner) (model.Item, error) {
+	var it model.Item
+	var sellerId, sellerName sql.NullString
+	if err := s.Scan(&it.Id, &it.Title, &it.Description, &it.Price, &it.Status, &it.CreatedAt, &sellerId, &sellerName); err != nil {
+		return model.Item{}, err
+	}
+	if sellerId.Valid {
+		it.Seller = &model.Seller{Id: sellerId.String, DisplayName: sellerName.String}
+	}
+	return it, nil
+}
 
 // FindAll は新しい順に商品を返す。keyword が空でなければ、タイトルか説明文に含むものだけ。
 func (d *ItemDao) FindAll(keyword string) ([]model.Item, error) {
-	query := "SELECT " + itemColumns + " FROM item"
+	query := itemSelect
 	args := []any{}
 	if keyword != "" {
 		// LIKE の特殊文字（% _ \）はエスケープして、文字どおりに探す
 		like := "%" + escapeLike(keyword) + "%"
-		query += " WHERE title LIKE ? OR description LIKE ?"
+		query += " WHERE i.title LIKE ? OR i.description LIKE ?"
 		args = append(args, like, like)
 	}
-	query += " ORDER BY created_at DESC, id DESC"
+	query += " ORDER BY i.created_at DESC, i.id DESC"
 
 	rows, err := d.DB.Query(query, args...)
 	if err != nil {
@@ -35,8 +51,8 @@ func (d *ItemDao) FindAll(keyword string) ([]model.Item, error) {
 
 	items := make([]model.Item, 0)
 	for rows.Next() {
-		var it model.Item
-		if err := rows.Scan(&it.Id, &it.Title, &it.Description, &it.Price, &it.Status, &it.CreatedAt); err != nil {
+		it, err := scanItem(rows)
+		if err != nil {
 			return nil, fmt.Errorf("rows.Scan: %w", err)
 		}
 		items = append(items, it)
@@ -49,9 +65,7 @@ func (d *ItemDao) FindAll(keyword string) ([]model.Item, error) {
 
 // FindById は1件返す。無ければ model.ErrNotFound。
 func (d *ItemDao) FindById(id string) (model.Item, error) {
-	var it model.Item
-	err := d.DB.QueryRow("SELECT "+itemColumns+" FROM item WHERE id = ?", id).
-		Scan(&it.Id, &it.Title, &it.Description, &it.Price, &it.Status, &it.CreatedAt)
+	it, err := scanItem(d.DB.QueryRow(itemSelect+" WHERE i.id = ?", id))
 	if errors.Is(err, sql.ErrNoRows) {
 		return model.Item{}, model.ErrNotFound
 	}
@@ -61,15 +75,18 @@ func (d *ItemDao) FindById(id string) (model.Item, error) {
 	return it, nil
 }
 
-// Insert はトランザクションで1件登録する（失敗したら Rollback）。
+// Insert はトランザクションで1件登録する（失敗したら Rollback）。出品者は必須。
 func (d *ItemDao) Insert(it model.Item) error {
+	if it.Seller == nil {
+		return errors.New("item.Insert: 出品者がない")
+	}
 	tx, err := d.DB.Begin()
 	if err != nil {
 		return fmt.Errorf("db.Begin: %w", err)
 	}
 	_, err = tx.Exec(
-		"INSERT INTO item (id, title, description, price, status, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-		it.Id, it.Title, it.Description, it.Price, it.Status, it.CreatedAt,
+		"INSERT INTO item (id, title, description, price, status, seller_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+		it.Id, it.Title, it.Description, it.Price, it.Status, it.Seller.Id, it.CreatedAt,
 	)
 	if err != nil {
 		if rbErr := tx.Rollback(); rbErr != nil {

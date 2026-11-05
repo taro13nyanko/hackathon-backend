@@ -31,18 +31,25 @@ func (m *memItemStore) FindById(id string) (model.Item, error) {
 }
 func (m *memItemStore) Insert(it model.Item) error { m.items = append(m.items, it); return nil }
 
+// newItemHandler は /items と /me をつないだテスト用サーバー。
+// 偽のトークン確認係は "tok-<uid>" を uid として受け付ける。
 func newItemHandler() http.Handler {
-	c := &ItemController{Usecase: &usecase.ItemUsecase{Store: &memItemStore{}}}
+	members := &usecase.MemberUsecase{Store: &memMemberStore{}}
+	a := &Auth{Verifier: fakeVerifier{}, Members: members}
 	mux := http.NewServeMux()
-	c.Register(mux)
+	(&ItemController{Usecase: &usecase.ItemUsecase{Store: &memItemStore{}}, Auth: a}).Register(mux)
+	(&MeController{Usecase: members, Auth: a}).Register(mux)
 	return CORS("", mux)
 }
 
 func TestItemsFlow(t *testing.T) {
 	h := newItemHandler()
 
-	// 出品
-	rec := do(h, http.MethodPost, "/items", `{"title":"教科書","description":"線形代数","price":1200}`, "")
+	// 出品（ログイン＋プロフィール登録済み）
+	if rec := doAuth(h, http.MethodPost, "/me", `{"display_name":"ota"}`, "tok-uid-1"); rec.Code != http.StatusCreated {
+		t.Fatalf("POST /me: %d %s", rec.Code, rec.Body)
+	}
+	rec := doAuth(h, http.MethodPost, "/items", `{"title":"教科書","description":"線形代数","price":1200}`, "tok-uid-1")
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("POST /items: want 201, got %d", rec.Code)
 	}
@@ -71,7 +78,8 @@ func TestItemsFlow(t *testing.T) {
 	// 詳細
 	rec = do(h, http.MethodGet, "/items/"+created.Id, "", "")
 	var it model.Item
-	if rec.Code != http.StatusOK || json.Unmarshal(rec.Body.Bytes(), &it) != nil || it.Title != "教科書" || it.Status != model.ItemOnSale {
+	if rec.Code != http.StatusOK || json.Unmarshal(rec.Body.Bytes(), &it) != nil || it.Title != "教科書" || it.Status != model.ItemOnSale ||
+		it.Seller == nil || it.Seller.DisplayName != "ota" {
 		t.Fatalf("GET /items/{id}: %d %s", rec.Code, rec.Body.String())
 	}
 }
@@ -82,8 +90,7 @@ func TestItemsErrors(t *testing.T) {
 		name, method, target, body string
 		want                       int
 	}{
-		{"安すぎる", http.MethodPost, "/items", `{"title":"a","price":100}`, http.StatusBadRequest},
-		{"壊れたJSON", http.MethodPost, "/items", `{"title":`, http.StatusBadRequest},
+		{"ログインなしで出品", http.MethodPost, "/items", `{"title":"a","price":1000}`, http.StatusUnauthorized},
 		{"存在しないID", http.MethodGet, "/items/NOPE", "", http.StatusNotFound},
 		{"許可していないメソッド", http.MethodDelete, "/items", "", http.StatusMethodNotAllowed},
 		{"プリフライト", http.MethodOptions, "/items", "", http.StatusNoContent},

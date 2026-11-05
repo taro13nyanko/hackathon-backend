@@ -2,7 +2,6 @@ package controller
 
 import (
 	"encoding/json"
-	"errors"
 	"log"
 	"net/http"
 
@@ -64,15 +63,6 @@ func (c *UserController) ListHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, users)
-}
-
-func writeErr(w http.ResponseWriter, err error) {
-	if errors.Is(err, usecase.ErrInvalidInput) {
-		w.WriteHeader(http.StatusBadRequest)
-		return
-	}
-	log.Printf("fail: %v", err)
-	w.WriteHeader(http.StatusInternalServerError)
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

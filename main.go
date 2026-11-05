@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	"hackathon-backend/auth"
 	"hackathon-backend/controller"
 	"hackathon-backend/dao"
 	"hackathon-backend/usecase"
@@ -26,12 +27,23 @@ func main() {
 		Usecase: &usecase.UserUsecase{Store: &dao.UserDao{DB: db}},
 	}
 
+	// ログイン（Firebase の ID トークンを確かめる）。プロジェクト ID は環境変数で変えられる
+	projectID := os.Getenv("FIREBASE_PROJECT_ID")
+	if projectID == "" {
+		projectID = "uttc-c10-yusuke-ota-5da712"
+	}
+	members := &usecase.MemberUsecase{Store: &dao.MemberDao{DB: db}}
+	authz := &controller.Auth{Verifier: auth.NewVerifier(projectID), Members: members}
+
 	itemCtrl := &controller.ItemController{
 		Usecase: &usecase.ItemUsecase{Store: &dao.ItemDao{DB: db}},
+		Auth:    authz,
 	}
+	meCtrl := &controller.MeController{Usecase: members, Auth: authz}
 
 	mux := http.NewServeMux()
 	itemCtrl.Register(mux) // GET/POST /items, GET /items/{id}
+	meCtrl.Register(mux)   // GET/POST /me
 	mux.Handle("/user", userCtrl)
 	mux.HandleFunc("/users", userCtrl.ListHandler)
 	// 動作確認用（DB まで届くか見る）。Cloud Run では z で終わるパス（/healthz）は予約されていて届かないので /health にする

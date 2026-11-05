@@ -6,21 +6,28 @@ UTTC ハッカソン用のバックエンド（Go）。Cloud Run で動かし、
 | パス | 中身 |
 |---|---|
 | `main.go` | 起動・ルーティング・終了処理（SIGTERM で処理中のリクエストを終えてから止まる） |
-| `controller/` | HTTP の受け口（`/user`・`/users`・`/items`）と CORS |
-| `usecase/` | 入力チェック（ユーザー・商品）と ID 採番（ULID） |
+| `auth/` | Firebase の ID トークンの確認（署名・期限・宛先。標準ライブラリだけ） |
+| `controller/` | HTTP の受け口（`/me`・`/items`・`/user`・`/users`）、ログイン確認、CORS |
+| `usecase/` | 入力チェック（表示名・商品）と ID 採番（ULID） |
 | `dao/` | SQL と DB 接続（接続情報はすべて環境変数） |
 | `model/` | 構造体 |
 | `sql/schema.sql` | `user`・`item` テーブルの CREATE 文と見本データ |
+| `sql/002_users.sql` | ログイン機能：`users` テーブルと `item.seller_id` |
 
 ## API
 
 本番: https://hackathon-backend-646017661953.us-central1.run.app
 
+🔒 は `Authorization: Bearer <Firebase の ID トークン>` が必要（無い・無効なら 401）。
+エラーは `{"error":"<コード>"}`（`invalid_input` `unauthorized` `profile_required` `not_found` `already_registered` `internal`）。
+
 | メソッド | パス | 内容 |
 |---|---|---|
+| GET | `/me` | 🔒 自分の `{"id","display_name"}`。表示名が未登録なら 404（画面はプロフィール登録へ） |
+| POST | `/me` | 🔒 `{"display_name":"ota"}`（1〜50文字）で登録し 201。登録済みなら 409 |
 | GET | `/items` | 商品一覧（新しい順）。`?q=キーワード` でタイトル・説明を部分一致検索。0件なら `[]` |
-| POST | `/items` | `{"title":"...","description":"...","price":1200}` で出品し、201 と `{"id":"..."}` を返す。商品名1〜40文字・説明1000文字まで・価格300〜9,999,999円（違反は 400） |
-| GET | `/items/{id}` | 商品1件。無ければ 404 |
+| POST | `/items` | 🔒 表示名の登録が必要（未登録は 403 `profile_required`）。`{"title":"...","description":"...","price":1200}` で出品し、201 と `{"id":"..."}` を返す。商品名1〜40文字・説明1000文字まで・価格300〜9,999,999円（違反は 400） |
+| GET | `/items/{id}` | 商品1件。無ければ 404。商品の `seller` は `{"id","display_name"}`（見本データは `null`） |
 | GET | `/users` | 全ユーザー |
 | GET | `/user?name=hanako` | 名前が一致するユーザーの配列（0件なら `[]`） |
 | POST | `/user` | `{"name":"hanako","age":20}` を登録し `{"id":"..."}` を返す |
@@ -35,6 +42,7 @@ UTTC ハッカソン用のバックエンド（Go）。Cloud Run で動かし、
 | `MYSQL_DATABASE` | `hackathon` | `hackathon` |
 | `MYSQL_HOST` | `unix(/cloudsql/<接続名>)` | `tcp(127.0.0.1:3306)`（省略時もこれ） |
 | `ALLOWED_ORIGINS` | `https://<あなたの>.vercel.app` | `http://localhost:5173` |
+| `FIREBASE_PROJECT_ID` | 設定しない（省略時 `uttc-c10-yusuke-ota-5da712`） | 同左 |
 | `PORT` | Cloud Run が自動で入れる（設定しない） | 省略時 8000 |
 
 ## ローカルで動かす（PowerShell）

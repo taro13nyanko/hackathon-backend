@@ -50,8 +50,11 @@ func (uc *ItemUsecase) Get(id string) (model.Item, error) {
 	return uc.Store.FindById(id)
 }
 
-// Create は出品する。
-func (uc *ItemUsecase) Create(req model.ItemCreateReq) (model.ItemCreateRes, error) {
+// Create は出品する。seller はログイン中の人（プロフィール登録済み）。
+func (uc *ItemUsecase) Create(seller model.Member, req model.ItemCreateReq) (model.ItemCreateRes, error) {
+	if seller.Id == "" {
+		return model.ItemCreateRes{}, ErrInvalidInput
+	}
 	title := strings.TrimSpace(req.Title)
 	desc := strings.TrimSpace(req.Description)
 	if title == "" || utf8.RuneCountInString(title) > ItemTitleMax {
@@ -69,6 +72,7 @@ func (uc *ItemUsecase) Create(req model.ItemCreateReq) (model.ItemCreateRes, err
 		Description: desc,
 		Price:       req.Price,
 		Status:      model.ItemOnSale,
+		Seller:      &model.Seller{Id: seller.Id, DisplayName: seller.DisplayName},
 		CreatedAt:   uc.now().Truncate(time.Second), // DATETIME は秒まで
 	}
 	if err := uc.Store.Insert(it); err != nil {
