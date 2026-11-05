@@ -22,6 +22,7 @@ const (
 type ItemStore interface {
 	FindAll(keyword string) ([]model.Item, error)
 	FindById(id string) (model.Item, error)
+	FindBySeller(sellerId string) ([]model.Item, error)
 	Insert(it model.Item) error
 }
 
@@ -40,6 +41,11 @@ func (uc *ItemUsecase) now() time.Time {
 // List は商品一覧。keyword は前後の空白を除いて使う（空なら全件）。
 func (uc *ItemUsecase) List(keyword string) ([]model.Item, error) {
 	return uc.Store.FindAll(strings.TrimSpace(keyword))
+}
+
+// Mine は自分が出品した商品（新しい順）。
+func (uc *ItemUsecase) Mine(me model.Member) ([]model.Item, error) {
+	return uc.Store.FindBySeller(me.Id)
 }
 
 // Get は商品1件。見つからなければ model.ErrNotFound がそのまま返る。

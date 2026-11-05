@@ -63,6 +63,24 @@ func (d *ItemDao) FindAll(keyword string) ([]model.Item, error) {
 	return items, nil
 }
 
+// FindBySeller は出品者 sellerId の商品を新しい順に返す（マイページ用）。
+func (d *ItemDao) FindBySeller(sellerId string) ([]model.Item, error) {
+	rows, err := d.DB.Query(itemSelect+" WHERE i.seller_id = ? ORDER BY i.created_at DESC, i.id DESC", sellerId)
+	if err != nil {
+		return nil, fmt.Errorf("db.Query: %w", err)
+	}
+	defer rows.Close()
+	items := make([]model.Item, 0)
+	for rows.Next() {
+		it, err := scanItem(rows)
+		if err != nil {
+			return nil, fmt.Errorf("rows.Scan: %w", err)
+		}
+		items = append(items, it)
+	}
+	return items, rows.Err()
+}
+
 // FindById は1件返す。無ければ model.ErrNotFound。
 func (d *ItemDao) FindById(id string) (model.Item, error) {
 	it, err := scanItem(d.DB.QueryRow(itemSelect+" WHERE i.id = ?", id))

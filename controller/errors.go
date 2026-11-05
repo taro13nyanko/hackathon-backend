@@ -23,6 +23,10 @@ func writeErr(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusNotFound, "not_found")
 	case errors.Is(err, model.ErrAlreadyRegistered):
 		writeError(w, http.StatusConflict, "already_registered")
+	case errors.Is(err, model.ErrAlreadySold):
+		writeError(w, http.StatusConflict, "already_sold")
+	case errors.Is(err, model.ErrOwnItem):
+		writeError(w, http.StatusConflict, "own_item")
 	default:
 		log.Printf("fail: %v", err)
 		writeError(w, http.StatusInternalServerError, "internal")

@@ -29,14 +29,19 @@ func (d *MemberDao) FindByFirebaseUID(uid string) (model.Member, error) {
 	return m, nil
 }
 
+// isDuplicate は UNIQUE 違反（MySQL のエラー 1062 Duplicate entry）か。
+func isDuplicate(err error) bool {
+	var me *mysql.MySQLError
+	return errors.As(err, &me) && me.Number == 1062
+}
+
 // Insert は1件登録する。firebase_uid が重複したら model.ErrAlreadyRegistered。
 func (d *MemberDao) Insert(m model.Member) error {
 	_, err := d.DB.Exec(
 		"INSERT INTO users (id, firebase_uid, display_name, created_at) VALUES (?, ?, ?, ?)",
 		m.Id, m.FirebaseUID, m.DisplayName, m.CreatedAt,
 	)
-	var me *mysql.MySQLError
-	if errors.As(err, &me) && me.Number == 1062 { // Duplicate entry
+	if isDuplicate(err) {
 		return model.ErrAlreadyRegistered
 	}
 	if err != nil {

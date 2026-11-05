@@ -35,15 +35,19 @@ func main() {
 	members := &usecase.MemberUsecase{Store: &dao.MemberDao{DB: db}}
 	authz := &controller.Auth{Verifier: auth.NewVerifier(projectID), Members: members}
 
-	itemCtrl := &controller.ItemController{
-		Usecase: &usecase.ItemUsecase{Store: &dao.ItemDao{DB: db}},
-		Auth:    authz,
-	}
+	items := &usecase.ItemUsecase{Store: &dao.ItemDao{DB: db}}
+	itemCtrl := &controller.ItemController{Usecase: items, Auth: authz}
 	meCtrl := &controller.MeController{Usecase: members, Auth: authz}
+	purchaseCtrl := &controller.PurchaseController{
+		Purchases: &usecase.PurchaseUsecase{Store: &dao.PurchaseDao{DB: db}},
+		Items:     items,
+		Auth:      authz,
+	}
 
 	mux := http.NewServeMux()
-	itemCtrl.Register(mux) // GET/POST /items, GET /items/{id}
-	meCtrl.Register(mux)   // GET/POST /me
+	itemCtrl.Register(mux)     // GET/POST /items, GET /items/{id}
+	meCtrl.Register(mux)       // GET/POST /me
+	purchaseCtrl.Register(mux) // POST /items/{id}/purchase, GET /me/items, GET /me/purchases
 	mux.Handle("/user", userCtrl)
 	mux.HandleFunc("/users", userCtrl.ListHandler)
 	// 動作確認用（DB まで届くか見る）。Cloud Run では z で終わるパス（/healthz）は予約されていて届かないので /health にする

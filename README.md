@@ -13,21 +13,25 @@ UTTC ハッカソン用のバックエンド（Go）。Cloud Run で動かし、
 | `model/` | 構造体 |
 | `sql/schema.sql` | `user`・`item` テーブルの CREATE 文と見本データ |
 | `sql/002_users.sql` | ログイン機能：`users` テーブルと `item.seller_id` |
+| `sql/003_purchases.sql` | 購入機能：`purchases` テーブル（1商品1回まで） |
 
 ## API
 
 本番: https://hackathon-backend-646017661953.us-central1.run.app
 
 🔒 は `Authorization: Bearer <Firebase の ID トークン>` が必要（無い・無効なら 401）。
-エラーは `{"error":"<コード>"}`（`invalid_input` `unauthorized` `profile_required` `not_found` `already_registered` `internal`）。
+エラーは `{"error":"<コード>"}`（`invalid_input` `unauthorized` `profile_required` `not_found` `already_registered` `already_sold` `own_item` `internal`）。
 
 | メソッド | パス | 内容 |
 |---|---|---|
 | GET | `/me` | 🔒 自分の `{"id","display_name"}`。表示名が未登録なら 404（画面はプロフィール登録へ） |
 | POST | `/me` | 🔒 `{"display_name":"ota"}`（1〜50文字）で登録し 201。登録済みなら 409 |
+| GET | `/me/items` | 🔒 自分が出品した商品（新しい順） |
+| GET | `/me/purchases` | 🔒 自分が買った商品 `[{"id","item","price","created_at"}]`（新しい順） |
 | GET | `/items` | 商品一覧（新しい順）。`?q=キーワード` でタイトル・説明を部分一致検索。0件なら `[]` |
 | POST | `/items` | 🔒 表示名の登録が必要（未登録は 403 `profile_required`）。`{"title":"...","description":"...","price":1200}` で出品し、201 と `{"id":"..."}` を返す。商品名1〜40文字・説明1000文字まで・価格300〜9,999,999円（違反は 400） |
 | GET | `/items/{id}` | 商品1件。無ければ 404。商品の `seller` は `{"id","display_name"}`（見本データは `null`） |
+| POST | `/items/{id}/purchase` | 🔒 購入（決済なし）。201 と `{"purchase_id","item_id","price"}`。売り切れ・自分の商品は 409（`already_sold` / `own_item`）、無ければ 404。商品の行を `SELECT … FOR UPDATE` で押さえるので、同時に買われても1人だけ成功する |
 | GET | `/users` | 全ユーザー |
 | GET | `/user?name=hanako` | 名前が一致するユーザーの配列（0件なら `[]`） |
 | POST | `/user` | `{"name":"hanako","age":20}` を登録し `{"id":"..."}` を返す |

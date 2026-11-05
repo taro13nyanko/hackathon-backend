@@ -29,7 +29,51 @@ func (m *memItemStore) FindById(id string) (model.Item, error) {
 	}
 	return model.Item{}, model.ErrNotFound
 }
+func (m *memItemStore) FindBySeller(sellerId string) ([]model.Item, error) {
+	out := []model.Item{}
+	for _, it := range m.items {
+		if it.Seller != nil && it.Seller.Id == sellerId {
+			out = append(out, it)
+		}
+	}
+	return out, nil
+}
 func (m *memItemStore) Insert(it model.Item) error { m.items = append(m.items, it); return nil }
+
+// memPurchaseStore は DAO と同じ決まり（無い→404、自分の→own_item、売り切れ→already_sold）をメモリで真似る。
+type memPurchaseStore struct {
+	items     *memItemStore
+	purchases []model.Purchase
+}
+
+func (m *memPurchaseStore) Buy(p model.Purchase) (model.Purchase, error) {
+	for i := range m.items.items {
+		it := &m.items.items[i]
+		if it.Id != p.Item.Id {
+			continue
+		}
+		if it.Seller != nil && it.Seller.Id == p.BuyerId {
+			return model.Purchase{}, model.ErrOwnItem
+		}
+		if it.Status != model.ItemOnSale {
+			return model.Purchase{}, model.ErrAlreadySold
+		}
+		it.Status = model.ItemSold
+		p.Price, p.Item = it.Price, *it
+		m.purchases = append(m.purchases, p)
+		return p, nil
+	}
+	return model.Purchase{}, model.ErrNotFound
+}
+func (m *memPurchaseStore) FindByBuyer(buyerId string) ([]model.Purchase, error) {
+	out := []model.Purchase{}
+	for _, p := range m.purchases {
+		if p.BuyerId == buyerId {
+			out = append(out, p)
+		}
+	}
+	return out, nil
+}
 
 // newItemHandler は /items と /me をつないだテスト用サーバー。
 // 偽のトークン確認係は "tok-<uid>" を uid として受け付ける。
@@ -37,7 +81,10 @@ func newItemHandler() http.Handler {
 	members := &usecase.MemberUsecase{Store: &memMemberStore{}}
 	a := &Auth{Verifier: fakeVerifier{}, Members: members}
 	mux := http.NewServeMux()
-	(&ItemController{Usecase: &usecase.ItemUsecase{Store: &memItemStore{}}, Auth: a}).Register(mux)
+	itemStore := &memItemStore{}
+	items := &usecase.ItemUsecase{Store: itemStore}
+	(&ItemController{Usecase: items, Auth: a}).Register(mux)
+	(&PurchaseController{Purchases: &usecase.PurchaseUsecase{Store: &memPurchaseStore{items: itemStore}}, Items: items, Auth: a}).Register(mux)
 	(&MeController{Usecase: members, Auth: a}).Register(mux)
 	return CORS("", mux)
 }

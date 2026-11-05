@@ -29,6 +29,16 @@ func (f *fakeItemStore) FindById(id string) (model.Item, error) {
 	return model.Item{}, model.ErrNotFound
 }
 
+func (f *fakeItemStore) FindBySeller(sellerId string) ([]model.Item, error) {
+	out := []model.Item{}
+	for _, it := range f.items {
+		if it.Seller != nil && it.Seller.Id == sellerId {
+			out = append(out, it)
+		}
+	}
+	return out, nil
+}
+
 func (f *fakeItemStore) Insert(it model.Item) error {
 	if f.err != nil {
 		return f.err
