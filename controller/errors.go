@@ -19,6 +19,8 @@ func writeErr(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, usecase.ErrInvalidInput):
 		writeError(w, http.StatusBadRequest, "invalid_input")
+	case errors.Is(err, usecase.ErrTooMany):
+		writeError(w, http.StatusTooManyRequests, "too_many")
 	case errors.Is(err, model.ErrNotFound):
 		writeError(w, http.StatusNotFound, "not_found")
 	case errors.Is(err, model.ErrAlreadyRegistered):

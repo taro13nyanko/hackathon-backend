@@ -13,7 +13,9 @@ type fakeDMStore struct {
 	msgs []model.Message
 }
 
-func (f *fakeDMStore) FindOrCreate(c model.Conversation) (string, bool, error) { return "C1", true, nil }
+func (f *fakeDMStore) FindOrCreate(c model.Conversation) (string, bool, error) {
+	return "C1", true, nil
+}
 func (f *fakeDMStore) Get(id, viewer string) (model.Conversation, error) {
 	return model.Conversation{Id: id}, nil
 }

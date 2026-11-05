@@ -13,6 +13,7 @@ import (
 	"hackathon-backend/auth"
 	"hackathon-backend/controller"
 	"hackathon-backend/dao"
+	"hackathon-backend/gemini"
 	"hackathon-backend/usecase"
 )
 
@@ -43,6 +44,15 @@ func main() {
 		Items:     items,
 		Auth:      authz,
 	}
+	// Gemini（Vertex AI）。モデルと場所は環境変数で変えられる
+	descCtrl := &controller.DescriptionController{
+		Usecase: &usecase.DescriptionUsecase{Gen: &gemini.Client{
+			Project:  envOr("GOOGLE_CLOUD_PROJECT", projectID),
+			Location: envOr("GOOGLE_CLOUD_LOCATION", "global"),
+			Model:    envOr("GEMINI_MODEL", "gemini-flash-latest"),
+		}},
+		Auth: authz,
+	}
 	dmCtrl := &controller.DMController{
 		Usecase: &usecase.DMUsecase{Store: &dao.DMDao{DB: db}, Items: &dao.ItemDao{DB: db}},
 		Auth:    authz,
@@ -52,6 +62,7 @@ func main() {
 	itemCtrl.Register(mux)     // GET/POST /items, GET /items/{id}
 	meCtrl.Register(mux)       // GET/POST /me
 	purchaseCtrl.Register(mux) // POST /items/{id}/purchase, GET /me/items, GET /me/purchases
+	descCtrl.Register(mux)     // POST /items/description
 	dmCtrl.Register(mux)       // POST /items/{id}/conversations, GET /conversations, GET/POST /conversations/{id}/messages
 	mux.Handle("/user", userCtrl)
 	mux.HandleFunc("/users", userCtrl.ListHandler)
@@ -94,4 +105,11 @@ func main() {
 		log.Fatal(err)
 	}
 	log.Println("success: server stopped, closing DB")
+}
+
+func envOr(key, def string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return def
 }

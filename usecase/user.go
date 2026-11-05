@@ -12,6 +12,9 @@ import (
 // ErrInvalidInput は入力が条件を満たさないとき（→ 400）。
 var ErrInvalidInput = errors.New("invalid input")
 
+// ErrTooMany は短い時間に呼びすぎたとき（→ 429）。
+var ErrTooMany = errors.New("too many requests")
+
 // UserStore は usecase が DB に求める操作（テストで差し替えられるよう interface にしている）。
 type UserStore interface {
 	FindByName(name string) ([]model.User, error)
