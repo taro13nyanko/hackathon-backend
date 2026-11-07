@@ -138,7 +138,7 @@ func (c *Client) httpClient() *http.Client {
 	if c.HTTP != nil {
 		return c.HTTP
 	}
-	return &http.Client{Timeout: 100 * time.Second} // 画像から模型を作るとき（考える設定つき）は時間がかかる
+	return &http.Client{Timeout: 180 * time.Second} // 画像から模型を作るとき（最上位モデル・考える深さ high）は1分前後かかる
 }
 
 // accessToken はトークンをキャッシュして、切れる1分前に取り直す。
