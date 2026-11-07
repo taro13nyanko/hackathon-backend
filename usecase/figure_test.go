@@ -7,17 +7,19 @@ import (
 	"testing"
 	"time"
 
+	"hackathon-backend/gemini"
 	"hackathon-backend/model"
 )
 
 type fakeImgGen struct {
 	prompt, mime string
+	images       int
 	out          string
 	err          error
 }
 
-func (f *fakeImgGen) GenerateFromImage(_ context.Context, _, prompt, mime string, _ []byte) (string, error) {
-	f.prompt, f.mime = prompt, mime
+func (f *fakeImgGen) GenerateFromImages(_ context.Context, _, prompt string, imgs []gemini.Image) (string, error) {
+	f.prompt, f.mime, f.images = prompt, imgs[0].MimeType, len(imgs)
 	return f.out, f.err
 }
 
@@ -27,7 +29,7 @@ func TestFigureFromImage(t *testing.T) {
 	gen := &fakeImgGen{out: "```json\n" + `{"name":"ランプ","caption":"ランプさん","parts":[{"shape":"cone","size":[0.4,1,0.9],"pos":[0,1.6,0],"color":"#FFD166"}],"face":{"part":0,"style":"sleepy","y":1.5}}` + "\n```"}
 	uc := &FigureUsecase{Gen: gen}
 	me := model.Member{Id: "m1"}
-	f, err := uc.FromImage(context.Background(), me, pngHead, " デスクライト ")
+	f, err := uc.Make(context.Background(), me, FigureInput{Photo: pngHead, Name: " デスクライト "})
 	if err != nil || f.Name != "ランプ" || len(f.Parts) != 1 || f.Parts[0].Color != "#ffd166" || f.Face.Style != "sleepy" {
 		t.Fatalf("%+v %v", f, err)
 	}
@@ -35,12 +37,12 @@ func TestFigureFromImage(t *testing.T) {
 		t.Errorf("画像の種類と商品名を渡すこと: %q %q", gen.mime, gen.prompt)
 	}
 	for _, img := range [][]byte{nil, []byte("hello, not an image"), make([]byte, FigureImageMax+1)} {
-		if _, err := uc.FromImage(context.Background(), me, img, ""); !errors.Is(err, ErrInvalidInput) {
+		if _, err := uc.Make(context.Background(), me, FigureInput{Photo: img, Name: ""}); !errors.Is(err, ErrInvalidInput) {
 			t.Errorf("画像でないものは ErrInvalidInput: %v", err)
 		}
 	}
 	gen.out = "すみません"
-	if _, err := uc.FromImage(context.Background(), me, pngHead, ""); !errors.Is(err, ErrAIOutput) {
+	if _, err := uc.Make(context.Background(), me, FigureInput{Photo: pngHead, Name: ""}); !errors.Is(err, ErrAIOutput) {
 		t.Errorf("読めない出力は ErrAIOutput: %v", err)
 	}
 }
@@ -50,15 +52,15 @@ func TestFigureRateLimit(t *testing.T) {
 	uc := &FigureUsecase{Gen: &fakeImgGen{out: `{"parts":[{"shape":"sphere","size":[1],"pos":[0,1,0]}]}`}, Now: func() time.Time { return now }}
 	me := model.Member{Id: "m1"}
 	for i := 0; i < FigurePerMinute; i++ {
-		if _, err := uc.FromImage(context.Background(), me, pngHead, ""); err != nil {
+		if _, err := uc.Make(context.Background(), me, FigureInput{Photo: pngHead, Name: ""}); err != nil {
 			t.Fatal(i, err)
 		}
 	}
-	if _, err := uc.FromImage(context.Background(), me, pngHead, ""); !errors.Is(err, ErrTooMany) {
+	if _, err := uc.Make(context.Background(), me, FigureInput{Photo: pngHead, Name: ""}); !errors.Is(err, ErrTooMany) {
 		t.Fatalf("呼びすぎ: %v", err)
 	}
 	now = now.Add(61 * time.Second)
-	if _, err := uc.FromImage(context.Background(), me, pngHead, ""); err != nil {
+	if _, err := uc.Make(context.Background(), me, FigureInput{Photo: pngHead, Name: ""}); err != nil {
 		t.Fatalf("1分たてば使える: %v", err)
 	}
 }
@@ -117,17 +119,35 @@ func TestFigureFallback(t *testing.T) {
 	main := &fakeImgGen{err: errors.New("404 model not found")}
 	backup := &fakeImgGen{out: `{"parts":[{"shape":"sphere","size":[1],"pos":[0,1,0]}]}`}
 	uc := &FigureUsecase{Gen: main, Fallback: backup}
-	f, err := uc.FromImage(context.Background(), model.Member{Id: "m1"}, pngHead, "")
+	f, err := uc.Make(context.Background(), model.Member{Id: "m1"}, FigureInput{Photo: pngHead, Name: ""})
 	if err != nil || len(f.Parts) != 1 || backup.mime == "" {
 		t.Fatalf("賢いモデルが失敗したら予備でやり直す: %+v %v", f, err)
 	}
 	main.err, main.out = nil, "読めない"
 	backup.mime = ""
-	if _, err := uc.FromImage(context.Background(), model.Member{Id: "m2"}, pngHead, ""); err != nil || backup.mime == "" {
+	if _, err := uc.Make(context.Background(), model.Member{Id: "m2"}, FigureInput{Photo: pngHead, Name: ""}); err != nil || backup.mime == "" {
 		t.Fatalf("出力が読めないときも予備でやり直す: %v", err)
 	}
 	uc.Fallback = nil
-	if _, err := uc.FromImage(context.Background(), model.Member{Id: "m3"}, pngHead, ""); !errors.Is(err, ErrAIOutput) {
+	if _, err := uc.Make(context.Background(), model.Member{Id: "m3"}, FigureInput{Photo: pngHead, Name: ""}); !errors.Is(err, ErrAIOutput) {
 		t.Fatalf("予備がなければそのままエラー: %v", err)
+	}
+}
+
+func TestFigureRefine(t *testing.T) {
+	gen := &fakeImgGen{out: `{"parts":[{"shape":"sphere","size":[1],"pos":[0,1,0]},{"shape":"dome","size":[0.3],"pos":[0,0,0]}],"face":{"part":0,"style":"smile"}}`}
+	uc := &FigureUsecase{Gen: gen}
+	prev := &Figure{Name: "前回", Parts: []FigurePart{{Shape: "sphere", Size: []float64{1}, Pos: []float64{0, 1, 0}}}, Engine: "main"}
+	f, err := uc.Make(context.Background(), model.Member{Id: "m1"}, FigureInput{Photo: pngHead, Name: "ハンバーグ", Previous: prev, Render: pngHead})
+	if err != nil || len(f.Parts) != 2 || f.Engine != "main" {
+		t.Fatalf("%+v %v", f, err)
+	}
+	if gen.images != 2 || !strings.Contains(gen.prompt, `"name":"前回"`) || strings.Contains(gen.prompt, `"engine"`) || !strings.Contains(gen.prompt, "見比べて") {
+		t.Errorf("写真と描いた画像の2枚、前回の設計図（engine 抜き）を渡すこと: %d %q", gen.images, gen.prompt)
+	}
+	for _, in := range []FigureInput{{Photo: pngHead, Previous: prev}, {Photo: pngHead, Render: pngHead}, {Photo: pngHead, Previous: prev, Render: []byte("not image")}} {
+		if _, err := uc.Make(context.Background(), model.Member{Id: "m2"}, in); !errors.Is(err, ErrInvalidInput) {
+			t.Errorf("仕上げには前回の設計図と画像の両方が要る: %v", err)
+		}
 	}
 }

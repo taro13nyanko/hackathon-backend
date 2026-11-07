@@ -50,7 +50,7 @@ func TestURL(t *testing.T) {
 
 func mustJSON(v any) string { b, _ := json.Marshal(v); return string(b) }
 
-func TestGenerateFromImage(t *testing.T) {
+func TestGenerateFromImages(t *testing.T) {
 	var got map[string]any
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		b, _ := io.ReadAll(r.Body)
@@ -59,7 +59,7 @@ func TestGenerateFromImage(t *testing.T) {
 	}))
 	defer srv.Close()
 	c := &Client{Endpoint: srv.URL, Token: func(context.Context) (string, error) { return "tok", nil }}
-	text, err := c.GenerateFromImage(context.Background(), "指示", "写真です", "image/png", []byte("abc"))
+	text, err := c.GenerateFromImages(context.Background(), "指示", "写真です", []Image{{MimeType: "image/png", Data: []byte("abc")}})
 	if err != nil || text != `{"parts":[]}` {
 		t.Fatalf("%q %v", text, err)
 	}
