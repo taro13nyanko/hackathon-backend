@@ -13,8 +13,18 @@ type ItemDao struct {
 	DB *sql.DB
 }
 
+// itemCols は商品の列（別名 i）。itemCols を SELECT したら、itemScan で受ける。
+const itemCols = "i.id, i.title, i.description, i.price, i.status, i.created_at, i.photo_image_id, i.figure_image_id, i.figure_caption"
+
+// itemScan は itemCols を受ける Scan 先と、受けた後に NULL を空文字にする関数を返す。
+func itemScan(it *model.Item) ([]any, func()) {
+	var photo, figure sql.NullString
+	dest := []any{&it.Id, &it.Title, &it.Description, &it.Price, &it.Status, &it.CreatedAt, &photo, &figure, &it.FigureCaption}
+	return dest, func() { it.PhotoImageId, it.FigureImageId = photo.String, figure.String }
+}
+
 // 出品者の表示名は users から LEFT JOIN で取る（見本データは出品者なし → seller は null）。
-const itemSelect = "SELECT i.id, i.title, i.description, i.price, i.status, i.created_at, u.id, u.display_name" +
+const itemSelect = "SELECT " + itemCols + ", u.id, u.display_name" +
 	" FROM item i LEFT JOIN users u ON u.id = i.seller_id"
 
 type scanner interface{ Scan(dest ...any) error }
@@ -22,9 +32,11 @@ type scanner interface{ Scan(dest ...any) error }
 func scanItem(s scanner) (model.Item, error) {
 	var it model.Item
 	var sellerId, sellerName sql.NullString
-	if err := s.Scan(&it.Id, &it.Title, &it.Description, &it.Price, &it.Status, &it.CreatedAt, &sellerId, &sellerName); err != nil {
+	dest, done := itemScan(&it)
+	if err := s.Scan(append(dest, &sellerId, &sellerName)...); err != nil {
 		return model.Item{}, err
 	}
+	done()
 	if sellerId.Valid {
 		it.Seller = &model.Seller{Id: sellerId.String, DisplayName: sellerName.String}
 	}
@@ -103,8 +115,8 @@ func (d *ItemDao) Insert(it model.Item) error {
 		return fmt.Errorf("db.Begin: %w", err)
 	}
 	_, err = tx.Exec(
-		"INSERT INTO item (id, title, description, price, status, seller_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-		it.Id, it.Title, it.Description, it.Price, it.Status, it.Seller.Id, it.CreatedAt,
+		"INSERT INTO item (id, title, description, price, status, seller_id, photo_image_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+		it.Id, it.Title, it.Description, it.Price, it.Status, it.Seller.Id, nullIfEmpty(it.PhotoImageId), it.CreatedAt,
 	)
 	if err != nil {
 		if rbErr := tx.Rollback(); rbErr != nil {
@@ -120,4 +132,12 @@ func (d *ItemDao) Insert(it model.Item) error {
 
 func escapeLike(s string) string {
 	return strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(s)
+}
+
+// nullIfEmpty は空文字を NULL にする（外部キーの列に ” を入れないため）。
+func nullIfEmpty(s string) any {
+	if s == "" {
+		return nil
+	}
+	return s
 }

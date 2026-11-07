@@ -8,6 +8,7 @@ package gemini
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -37,14 +38,29 @@ type Client struct {
 
 // Generate は system（指示）と prompt（入力）を渡して、生成された文章を返す。
 func (c *Client) Generate(ctx context.Context, system, prompt string) (string, error) {
+	return c.generate(ctx, system, []map[string]any{{"text": prompt}},
+		map[string]any{"temperature": 0.4, "maxOutputTokens": 2048})
+}
+
+// GenerateFromImage は画像1枚と prompt を渡して、JSON の文字列を返させる（responseMimeType: application/json）。
+func (c *Client) GenerateFromImage(ctx context.Context, system, prompt, mimeType string, image []byte) (string, error) {
+	parts := []map[string]any{
+		{"inlineData": map[string]string{"mimeType": mimeType, "data": base64.StdEncoding.EncodeToString(image)}},
+		{"text": prompt},
+	}
+	return c.generate(ctx, system, parts,
+		map[string]any{"temperature": 0.6, "maxOutputTokens": 8192, "responseMimeType": "application/json"})
+}
+
+func (c *Client) generate(ctx context.Context, system string, parts []map[string]any, config map[string]any) (string, error) {
 	token, err := c.accessToken(ctx)
 	if err != nil {
 		return "", fmt.Errorf("%w: %v", ErrUnavailable, err)
 	}
 	body, _ := json.Marshal(map[string]any{
 		"systemInstruction": map[string]any{"parts": []map[string]string{{"text": system}}},
-		"contents":          []map[string]any{{"role": "user", "parts": []map[string]string{{"text": prompt}}}},
-		"generationConfig":  map[string]any{"temperature": 0.4, "maxOutputTokens": 2048},
+		"contents":          []map[string]any{{"role": "user", "parts": parts}},
+		"generationConfig":  config,
 	})
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url(), bytes.NewReader(body))
 	if err != nil {
@@ -107,7 +123,7 @@ func (c *Client) httpClient() *http.Client {
 	if c.HTTP != nil {
 		return c.HTTP
 	}
-	return &http.Client{Timeout: 30 * time.Second}
+	return &http.Client{Timeout: 60 * time.Second} // 画像から模型を作るときは時間がかかる
 }
 
 // accessToken はトークンをキャッシュして、切れる1分前に取り直す。

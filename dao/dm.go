@@ -47,7 +47,7 @@ func (d *DMDao) FindOrCreate(c model.Conversation) (string, bool, error) {
 
 // やりとりと、商品・出品者・買い手・最新メッセージを1回で取る。
 const convSelect = "SELECT c.id, c.buyer_id, c.created_at," +
-	" i.id, i.title, i.description, i.price, i.status, i.created_at," +
+	" " + itemCols + "," +
 	" s.id, s.display_name, b.display_name," +
 	" m.id, m.sender_id, m.body, m.created_at" +
 	" FROM conversations c" +
@@ -61,11 +61,12 @@ func scanConv(sc scanner, viewerId string) (model.Conversation, error) {
 	var sellerId, sellerName, buyerName string
 	var mId, mSender, mBody sql.NullString
 	var mAt sql.NullTime
-	if err := sc.Scan(&c.Id, &c.BuyerId, &c.CreatedAt,
-		&c.Item.Id, &c.Item.Title, &c.Item.Description, &c.Item.Price, &c.Item.Status, &c.Item.CreatedAt,
-		&sellerId, &sellerName, &buyerName, &mId, &mSender, &mBody, &mAt); err != nil {
+	dest, done := itemScan(&c.Item)
+	all := append([]any{&c.Id, &c.BuyerId, &c.CreatedAt}, dest...)
+	if err := sc.Scan(append(all, &sellerId, &sellerName, &buyerName, &mId, &mSender, &mBody, &mAt)...); err != nil {
 		return model.Conversation{}, err
 	}
+	done()
 	c.Item.Seller = &model.Seller{Id: sellerId, DisplayName: sellerName}
 	if viewerId == c.BuyerId {
 		c.Partner = model.Seller{Id: sellerId, DisplayName: sellerName}
