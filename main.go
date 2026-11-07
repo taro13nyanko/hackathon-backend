@@ -56,9 +56,24 @@ func main() {
 		Auth: authz,
 	}
 	// 写真 → デフォルメ3D模型の設計図（説明文と同じ Gemini を使う）
+	// 模型づくりは使える中で最上位のモデル（FIGURE_MODEL、Gemini 4 Argon・考える深さ high）で作らせ、失敗したら説明文と同じ軽いモデルでやり直す
 	figureCtrl := &controller.FigureController{
-		Usecase: &usecase.FigureUsecase{Gen: descCtrl.Usecase.Gen.(*gemini.Client)},
-		Auth:    authz,
+		Usecase: &usecase.FigureUsecase{
+			Gen: &gemini.Client{
+				Project:       envOr("GOOGLE_CLOUD_PROJECT", projectID),
+				Location:      envOr("GOOGLE_CLOUD_LOCATION", "global"),
+				Model:         envOr("FIGURE_MODEL", "gemini-4-argon"),
+				ThinkingLevel: envOr("FIGURE_THINKING", "high"),
+				JSONSchema:    usecase.FigureSchema,
+			},
+			Fallback: &gemini.Client{
+				Project:    envOr("GOOGLE_CLOUD_PROJECT", projectID),
+				Location:   envOr("GOOGLE_CLOUD_LOCATION", "global"),
+				Model:      envOr("GEMINI_MODEL", "gemini-3.5-flash-lite"),
+				JSONSchema: usecase.FigureSchema,
+			},
+		},
+		Auth: authz,
 	}
 	dmCtrl := &controller.DMController{
 		Usecase: &usecase.DMUsecase{Store: &dao.DMDao{DB: db}, Items: &dao.ItemDao{DB: db}},

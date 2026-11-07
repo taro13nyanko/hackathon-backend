@@ -112,3 +112,22 @@ func TestParseFigureCleans(t *testing.T) {
 		t.Errorf("部品は %d 個まで: %d", FigurePartsMax, len(f.Parts))
 	}
 }
+
+func TestFigureFallback(t *testing.T) {
+	main := &fakeImgGen{err: errors.New("404 model not found")}
+	backup := &fakeImgGen{out: `{"parts":[{"shape":"sphere","size":[1],"pos":[0,1,0]}]}`}
+	uc := &FigureUsecase{Gen: main, Fallback: backup}
+	f, err := uc.FromImage(context.Background(), model.Member{Id: "m1"}, pngHead, "")
+	if err != nil || len(f.Parts) != 1 || backup.mime == "" {
+		t.Fatalf("賢いモデルが失敗したら予備でやり直す: %+v %v", f, err)
+	}
+	main.err, main.out = nil, "読めない"
+	backup.mime = ""
+	if _, err := uc.FromImage(context.Background(), model.Member{Id: "m2"}, pngHead, ""); err != nil || backup.mime == "" {
+		t.Fatalf("出力が読めないときも予備でやり直す: %v", err)
+	}
+	uc.Fallback = nil
+	if _, err := uc.FromImage(context.Background(), model.Member{Id: "m3"}, pngHead, ""); !errors.Is(err, ErrAIOutput) {
+		t.Fatalf("予備がなければそのままエラー: %v", err)
+	}
+}

@@ -56,6 +56,8 @@ UTTC ハッカソン用のバックエンド（Go）。Cloud Run で動かし、
 | `ALLOWED_ORIGINS` | `https://<あなたの>.vercel.app` | `http://localhost:5173` |
 | `FIREBASE_PROJECT_ID` | 設定しない（省略時 `uttc-c10-yusuke-ota-5da712`） | 同左 |
 | `GEMINI_MODEL` | 設定しない（省略時 `gemini-3.5-flash-lite`。2027-07 まで提供） | 同左 |
+| `FIGURE_MODEL` | 設定しない（省略時 `gemini-4-argon`（2026-10 GA の最上位モデル）。写真→模型だけに使う。失敗したら `GEMINI_MODEL` でやり直す） | 同左 |
+| `FIGURE_THINKING` | 設定しない（省略時 `high`。`low`/`medium`/`high`） | 同左 |
 | `GOOGLE_CLOUD_LOCATION` | 設定しない（省略時 `global`） | 同左 |
 | `PORT` | Cloud Run が自動で入れる（設定しない） | 省略時 8000 |
 

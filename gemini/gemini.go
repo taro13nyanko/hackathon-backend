@@ -27,6 +27,10 @@ type Client struct {
 	Location string // 例: global
 	Model    string // 例: gemini-flash-latest
 
+	// 画像から JSON を作るとき（GenerateFromImage）だけ使う設定。空なら付けない
+	ThinkingLevel string         // 考える深さ: low / medium / high（対応モデルのみ）
+	JSONSchema    map[string]any // 出力の形（responseSchema）。形を外れた出力を減らす
+
 	HTTP     *http.Client
 	Endpoint string                                    // テスト用。空なら Vertex AI
 	Token    func(ctx context.Context) (string, error) // テスト用。nil ならメタデータサーバー
@@ -49,7 +53,18 @@ func (c *Client) GenerateFromImage(ctx context.Context, system, prompt, mimeType
 		{"text": prompt},
 	}
 	return c.generate(ctx, system, parts,
-		map[string]any{"temperature": 0.6, "maxOutputTokens": 8192, "responseMimeType": "application/json"})
+		c.imageConfig())
+}
+
+func (c *Client) imageConfig() map[string]any {
+	config := map[string]any{"temperature": 0.5, "maxOutputTokens": 16384, "responseMimeType": "application/json"}
+	if c.ThinkingLevel != "" {
+		config["thinkingConfig"] = map[string]any{"thinkingLevel": c.ThinkingLevel}
+	}
+	if c.JSONSchema != nil {
+		config["responseSchema"] = c.JSONSchema
+	}
+	return config
 }
 
 func (c *Client) generate(ctx context.Context, system string, parts []map[string]any, config map[string]any) (string, error) {
@@ -123,7 +138,7 @@ func (c *Client) httpClient() *http.Client {
 	if c.HTTP != nil {
 		return c.HTTP
 	}
-	return &http.Client{Timeout: 60 * time.Second} // 画像から模型を作るときは時間がかかる
+	return &http.Client{Timeout: 180 * time.Second} // 画像から模型を作るとき（最上位モデル・考える深さ high）は1分前後かかる
 }
 
 // accessToken はトークンをキャッシュして、切れる1分前に取り直す。
