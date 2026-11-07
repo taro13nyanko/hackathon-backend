@@ -36,7 +36,9 @@ func main() {
 	members := &usecase.MemberUsecase{Store: &dao.MemberDao{DB: db}}
 	authz := &controller.Auth{Verifier: auth.NewVerifier(projectID), Members: members}
 
-	items := &usecase.ItemUsecase{Store: &dao.ItemDao{DB: db}}
+	images := &dao.ImageDao{DB: db}
+	items := &usecase.ItemUsecase{Store: &dao.ItemDao{DB: db}, Images: images}
+	imageCtrl := &controller.ImageController{Usecase: &usecase.ImageUsecase{Store: images}, Auth: authz}
 	itemCtrl := &controller.ItemController{Usecase: items, Auth: authz}
 	meCtrl := &controller.MeController{Usecase: members, Auth: authz}
 	purchaseCtrl := &controller.PurchaseController{
@@ -53,6 +55,11 @@ func main() {
 		}},
 		Auth: authz,
 	}
+	// 写真 → デフォルメ3D模型の設計図（説明文と同じ Gemini を使う）
+	figureCtrl := &controller.FigureController{
+		Usecase: &usecase.FigureUsecase{Gen: descCtrl.Usecase.Gen.(*gemini.Client)},
+		Auth:    authz,
+	}
 	dmCtrl := &controller.DMController{
 		Usecase: &usecase.DMUsecase{Store: &dao.DMDao{DB: db}, Items: &dao.ItemDao{DB: db}},
 		Auth:    authz,
@@ -63,6 +70,8 @@ func main() {
 	meCtrl.Register(mux)       // GET/POST /me
 	purchaseCtrl.Register(mux) // POST /items/{id}/purchase, GET /me/items, GET /me/purchases
 	descCtrl.Register(mux)     // POST /items/description
+	figureCtrl.Register(mux)   // POST /figures
+	imageCtrl.Register(mux)    // POST /images, GET /images/{id}
 	dmCtrl.Register(mux)       // POST /items/{id}/conversations, GET /conversations, GET/POST /conversations/{id}/messages
 	mux.Handle("/user", userCtrl)
 	mux.HandleFunc("/users", userCtrl.ListHandler)

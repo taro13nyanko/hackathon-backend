@@ -27,8 +27,9 @@ type ItemStore interface {
 }
 
 type ItemUsecase struct {
-	Store ItemStore
-	Now   func() time.Time // テストで時刻を固定するため。nil なら time.Now
+	Store  ItemStore
+	Images ImageStore       // 写真が本人のものか確かめるため
+	Now    func() time.Time // テストで時刻を固定するため。nil なら time.Now
 }
 
 func (uc *ItemUsecase) now() time.Time {
@@ -72,14 +73,25 @@ func (uc *ItemUsecase) Create(seller model.Member, req model.ItemCreateReq) (mod
 	if req.Price < ItemPriceMin || req.Price > ItemPriceMax {
 		return model.ItemCreateRes{}, ErrInvalidInput
 	}
+	// 写真は任意。付けるなら、自分が上げた写真に限る
+	if req.PhotoImageId != "" {
+		if uc.Images == nil {
+			return model.ItemCreateRes{}, ErrInvalidInput
+		}
+		owner, err := uc.Images.OwnerOf(req.PhotoImageId)
+		if err != nil || owner != seller.Id {
+			return model.ItemCreateRes{}, ErrInvalidInput
+		}
+	}
 	it := model.Item{
-		Id:          ulid.Make().String(),
-		Title:       title,
-		Description: desc,
-		Price:       req.Price,
-		Status:      model.ItemOnSale,
-		Seller:      &model.Seller{Id: seller.Id, DisplayName: seller.DisplayName},
-		CreatedAt:   uc.now().Truncate(time.Second), // DATETIME は秒まで
+		Id:           ulid.Make().String(),
+		Title:        title,
+		Description:  desc,
+		Price:        req.Price,
+		Status:       model.ItemOnSale,
+		Seller:       &model.Seller{Id: seller.Id, DisplayName: seller.DisplayName},
+		PhotoImageId: req.PhotoImageId,
+		CreatedAt:    uc.now().Truncate(time.Second), // DATETIME は秒まで
 	}
 	if err := uc.Store.Insert(it); err != nil {
 		return model.ItemCreateRes{}, err

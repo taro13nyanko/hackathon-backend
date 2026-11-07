@@ -64,7 +64,7 @@ func (d *PurchaseDao) Buy(p model.Purchase) (model.Purchase, error) {
 // FindByBuyer は買った記録を新しい順に返す（商品と出品者の情報つき）。
 func (d *PurchaseDao) FindByBuyer(buyerId string) ([]model.Purchase, error) {
 	rows, err := d.DB.Query(
-		"SELECT p.id, p.price, p.created_at, i.id, i.title, i.description, i.price, i.status, i.created_at, u.id, u.display_name"+
+		"SELECT p.id, p.price, p.created_at, "+itemCols+", u.id, u.display_name"+
 			" FROM purchases p JOIN item i ON i.id = p.item_id LEFT JOIN users u ON u.id = i.seller_id"+
 			" WHERE p.buyer_id = ? ORDER BY p.created_at DESC, p.id DESC", buyerId)
 	if err != nil {
@@ -75,10 +75,11 @@ func (d *PurchaseDao) FindByBuyer(buyerId string) ([]model.Purchase, error) {
 	for rows.Next() {
 		var p model.Purchase
 		var sellerId, sellerName sql.NullString
-		if err := rows.Scan(&p.Id, &p.Price, &p.CreatedAt, &p.Item.Id, &p.Item.Title, &p.Item.Description,
-			&p.Item.Price, &p.Item.Status, &p.Item.CreatedAt, &sellerId, &sellerName); err != nil {
+		dest, done := itemScan(&p.Item)
+		if err := rows.Scan(append(append([]any{&p.Id, &p.Price, &p.CreatedAt}, dest...), &sellerId, &sellerName)...); err != nil {
 			return nil, fmt.Errorf("rows.Scan: %w", err)
 		}
+		done()
 		if sellerId.Valid {
 			p.Item.Seller = &model.Seller{Id: sellerId.String, DisplayName: sellerName.String}
 		}
