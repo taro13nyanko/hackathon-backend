@@ -70,3 +70,16 @@ func TestGenerateFromImage(t *testing.T) {
 		}
 	}
 }
+
+func TestImageConfig(t *testing.T) {
+	c := &Client{ThinkingLevel: "medium", JSONSchema: map[string]any{"type": "OBJECT"}}
+	s := mustJSON(c.imageConfig())
+	for _, want := range []string{`"thinkingLevel":"medium"`, `"responseSchema":{"type":"OBJECT"}`, `"responseMimeType":"application/json"`} {
+		if !strings.Contains(s, want) {
+			t.Errorf("%s が無い: %s", want, s)
+		}
+	}
+	if s := mustJSON((&Client{}).imageConfig()); strings.Contains(s, "thinkingConfig") || strings.Contains(s, "responseSchema") {
+		t.Errorf("設定が無ければ付けない: %s", s)
+	}
+}
