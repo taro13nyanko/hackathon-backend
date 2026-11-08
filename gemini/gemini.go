@@ -46,14 +46,20 @@ func (c *Client) Generate(ctx context.Context, system, prompt string) (string, e
 		map[string]any{"temperature": 0.4, "maxOutputTokens": 2048})
 }
 
-// GenerateFromImage は画像1枚と prompt を渡して、JSON の文字列を返させる（responseMimeType: application/json）。
-func (c *Client) GenerateFromImage(ctx context.Context, system, prompt, mimeType string, image []byte) (string, error) {
-	parts := []map[string]any{
-		{"inlineData": map[string]string{"mimeType": mimeType, "data": base64.StdEncoding.EncodeToString(image)}},
-		{"text": prompt},
+// Image は Gemini に渡す画像1枚。
+type Image struct {
+	MimeType string
+	Data     []byte
+}
+
+// GenerateFromImages は画像（1枚以上）と prompt を渡して、JSON の文字列を返させる（responseMimeType: application/json）。
+func (c *Client) GenerateFromImages(ctx context.Context, system, prompt string, images []Image) (string, error) {
+	parts := make([]map[string]any, 0, len(images)+1)
+	for _, img := range images {
+		parts = append(parts, map[string]any{"inlineData": map[string]string{"mimeType": img.MimeType, "data": base64.StdEncoding.EncodeToString(img.Data)}})
 	}
-	return c.generate(ctx, system, parts,
-		c.imageConfig())
+	parts = append(parts, map[string]any{"text": prompt})
+	return c.generate(ctx, system, parts, c.imageConfig())
 }
 
 func (c *Client) imageConfig() map[string]any {

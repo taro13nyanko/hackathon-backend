@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"hackathon-backend/gemini"
 	"hackathon-backend/usecase"
 )
 
@@ -16,7 +17,7 @@ type fakeImgGen struct {
 	err error
 }
 
-func (f *fakeImgGen) GenerateFromImage(context.Context, string, string, string, []byte) (string, error) {
+func (f *fakeImgGen) GenerateFromImages(context.Context, string, string, []gemini.Image) (string, error) {
 	return f.out, f.err
 }
 
@@ -49,6 +50,9 @@ func TestFigure(t *testing.T) {
 	gen.err = errors.New("boom")
 	if rec := doAuth(h, "POST", "/figures", body, "tok-u"); rec.Code != 429 && rec.Code != 502 {
 		t.Fatalf("Gemini の失敗: %d %s", rec.Code, rec.Body)
+	}
+	for i := 0; i < usecase.FigurePerMinute; i++ {
+		doAuth(h, "POST", "/figures", body, "tok-u")
 	}
 	if rec := doAuth(h, "POST", "/figures", body, "tok-u"); rec.Code != 429 || errCode(rec) != "too_many" {
 		t.Fatalf("呼びすぎ: %d %s", rec.Code, rec.Body)

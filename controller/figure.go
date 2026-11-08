@@ -15,9 +15,10 @@ import (
 // FigureController は写真からデフォルメ3D模型の設計図（部品の JSON）を作る。
 //
 //	POST /figures  {"image": "<base64 または data:image/...;base64,...>", "name": "商品名（任意）"}
+//	仕上げ：        上に加えて "previous": 前回の設計図, "render": 前回の設計図を描いた画像（data URL）
 //	→ {"figure": {"name", "caption", "parts": [...], "face": {...}}}
 //
-// ログイン＋表示名の登録が必要。1人1分3回まで（429 too_many）。
+// ログイン＋表示名の登録が必要。1人1分6回まで（429 too_many）。
 // 画像は jpeg / png / webp、4MB まで（400 invalid_input）。Gemini の失敗や読めない出力は 502 ai_failed。
 type FigureController struct {
 	Usecase *usecase.FigureUsecase
@@ -29,27 +30,37 @@ func (c *FigureController) Register(mux *http.ServeMux) {
 }
 
 type figureReq struct {
-	Image string `json:"image"`
-	Name  string `json:"name"`
+	Image    string          `json:"image"`
+	Name     string          `json:"name"`
+	Previous *usecase.Figure `json:"previous"` // 仕上げのとき：前回の設計図
+	Render   string          `json:"render"`   // 仕上げのとき：前回の設計図を描いた画像
+}
+
+// decodeImage は base64 か data URL を読む。空なら nil。
+func decodeImage(s string) ([]byte, error) {
+	if s == "" {
+		return nil, nil
+	}
+	if i := strings.Index(s, ";base64,"); strings.HasPrefix(s, "data:") && i >= 0 {
+		s = s[i+len(";base64,"):]
+	}
+	return base64.StdEncoding.DecodeString(s)
 }
 
 func (c *FigureController) create(w http.ResponseWriter, r *http.Request, me model.Member) {
-	r.Body = http.MaxBytesReader(w, r.Body, usecase.FigureImageMax*4/3+64<<10) // base64 は 4/3 倍
+	r.Body = http.MaxBytesReader(w, r.Body, usecase.FigureImageMax*3+256<<10) // 画像2枚（base64 は 4/3 倍）＋設計図
 	var req figureReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid_input")
 		return
 	}
-	b64 := req.Image
-	if i := strings.Index(b64, ";base64,"); strings.HasPrefix(b64, "data:") && i >= 0 {
-		b64 = b64[i+len(";base64,"):]
-	}
-	img, err := base64.StdEncoding.DecodeString(b64)
-	if err != nil {
+	img, err := decodeImage(req.Image)
+	render, err2 := decodeImage(req.Render)
+	if err != nil || err2 != nil {
 		writeError(w, http.StatusBadRequest, "invalid_input")
 		return
 	}
-	fig, err := c.Usecase.FromImage(r.Context(), me, img, req.Name)
+	fig, err := c.Usecase.Make(r.Context(), me, usecase.FigureInput{Photo: img, Name: req.Name, Previous: req.Previous, Render: render})
 	switch {
 	case err == nil:
 		writeJSON(w, http.StatusOK, map[string]any{"figure": fig})
