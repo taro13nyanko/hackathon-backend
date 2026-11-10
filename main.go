@@ -24,10 +24,6 @@ func main() {
 	}
 	defer db.Close()
 
-	userCtrl := &controller.UserController{
-		Usecase: &usecase.UserUsecase{Store: &dao.UserDao{DB: db}},
-	}
-
 	// ログイン（Firebase の ID トークンを確かめる）。プロジェクト ID は環境変数で変えられる
 	projectID := os.Getenv("FIREBASE_PROJECT_ID")
 	if projectID == "" {
@@ -38,8 +34,9 @@ func main() {
 
 	images := &dao.ImageDao{DB: db}
 	itemDao := &dao.ItemDao{DB: db}
-	items := &usecase.ItemUsecase{Store: itemDao, Images: images, Figures: itemDao}
-	imageCtrl := &controller.ImageController{Usecase: &usecase.ImageUsecase{Store: images}, Auth: authz}
+	// 回数制限（1人あたり。サーバー1台のメモリ内で数える）。画像は合計枚数も DB で数える（usecase/image.go）
+	items := &usecase.ItemUsecase{Store: itemDao, Images: images, Figures: itemDao, Limit: usecase.NewLimiter(10, time.Minute)}
+	imageCtrl := &controller.ImageController{Usecase: &usecase.ImageUsecase{Store: images, Limit: usecase.NewLimiter(10, time.Minute)}, Auth: authz}
 	itemCtrl := &controller.ItemController{Usecase: items, Auth: authz}
 	meCtrl := &controller.MeController{Usecase: members, Auth: authz}
 	purchaseCtrl := &controller.PurchaseController{
@@ -78,7 +75,7 @@ func main() {
 		Auth:  authz,
 	}
 	dmCtrl := &controller.DMController{
-		Usecase: &usecase.DMUsecase{Store: &dao.DMDao{DB: db}, Items: &dao.ItemDao{DB: db}},
+		Usecase: &usecase.DMUsecase{Store: &dao.DMDao{DB: db}, Items: &dao.ItemDao{DB: db}, Limit: usecase.NewLimiter(30, time.Minute)},
 		Auth:    authz,
 	}
 
@@ -90,8 +87,6 @@ func main() {
 	figureCtrl.Register(mux)   // POST /figures, PUT /items/{id}/figure
 	imageCtrl.Register(mux)    // POST /images, GET /images/{id}
 	dmCtrl.Register(mux)       // POST /items/{id}/conversations, GET /conversations, GET/POST /conversations/{id}/messages
-	mux.Handle("/user", userCtrl)
-	mux.HandleFunc("/users", userCtrl.ListHandler)
 	// 動作確認用（DB まで届くか見る）。Cloud Run では z で終わるパス（/healthz）は予約されていて届かないので /health にする
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
 		if err := db.PingContext(r.Context()); err != nil {
@@ -109,8 +104,11 @@ func main() {
 	}
 	srv := &http.Server{
 		Addr:              ":" + port,
-		Handler:           controller.CORS(os.Getenv("ALLOWED_ORIGINS"), mux),
+		Handler:           controller.CORS(os.Getenv("ALLOWED_ORIGINS"), controller.LimitBody(mux)),
 		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       60 * time.Second,  // 本文を送り終えるまで（模型づくりは画像2枚で最大12MB ほど）
+		WriteTimeout:      300 * time.Second, // 返し終えるまで（模型づくりは Gemini を最大240秒待つ）
+		IdleTimeout:       120 * time.Second,
 	}
 
 	// Ctrl+C / Cloud Run の停止(SIGTERM) で、処理中のリクエストを終えてから DB を閉じる

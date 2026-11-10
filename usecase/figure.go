@@ -27,6 +27,7 @@ const (
 	FigurePerMinute = 6       // 1人1分あたりの回数（1回の模型づくり＝下書き＋仕上げの2回）
 	FigureNameMax   = 20
 	FigureLabelMax  = 12 // 札の文字数
+	FigureLabelsMax = 6  // 札は1つの模型に6枚まで（文字の絵を作るので重い）
 )
 
 // ImageGenerator は画像から JSON を作るもの（本物は gemini.Client）。
@@ -286,11 +287,20 @@ func ParseFigure(raw string) (Figure, error) {
 	// 部品を1つずつ確かめる。だめな部品は捨て、顔の番号を付け直す
 	newIndex := map[int]int{}
 	parts := make([]FigurePart, 0, len(f.Parts))
+	labels := 0
 	for i, p := range f.Parts {
 		if len(parts) >= FigurePartsMax {
 			break
 		}
+		if p.Shape == "label" {
+			if labels >= FigureLabelsMax {
+				continue
+			}
+		}
 		if q, ok := cleanPart(p); ok {
+			if q.Shape == "label" {
+				labels++
+			}
 			newIndex[i] = len(parts)
 			parts = append(parts, q)
 		}
@@ -338,6 +348,9 @@ func cleanPart(p FigurePart) (FigurePart, bool) {
 		return p, false
 	}
 	if p.Shape == "label" {
+		// 札は文字の絵（canvas）を作るので、細長すぎると見た人のブラウザで巨大な絵になる。幅と、高さ÷幅を制限する
+		p.Size[0] = clamp(p.Size[0], 0.1, 4)
+		p.Size[1] = clamp(p.Size[1], p.Size[0]*0.1, p.Size[0])
 		p.Text = cutRunes(strings.TrimSpace(p.Text), FigureLabelMax)
 		if p.Text == "" {
 			return p, false

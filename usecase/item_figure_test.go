@@ -66,10 +66,36 @@ func TestSaveFigureRules(t *testing.T) {
 	}
 	big := fig()
 	for i := 0; i < 200; i++ {
-		big.Parts = append(big.Parts, FigurePart{Shape: "label", Size: []float64{1, 0.3}, Pos: []float64{0, 0, 0}, Text: strings.Repeat("字", 50)})
+		big.Parts = append(big.Parts, FigurePart{Shape: "sphere", Size: []float64{0.2}, Pos: []float64{0, 0, 0}})
 	}
 	if f, err := uc.SaveFigure(seller, "I1", big); err != nil || len(f.Parts) != FigurePartsMax {
 		t.Fatalf("部品は %d 個までに切る: %v %d", FigurePartsMax, err, len(f.Parts))
+	}
+	// 札は6枚まで。細長い札（見た人のブラウザで巨大な絵になる）は幅と高さ÷幅を直す
+	labels := fig()
+	for i := 0; i < 20; i++ {
+		labels.Parts = append(labels.Parts, FigurePart{Shape: "label", Size: []float64{0.0313, 4}, Pos: []float64{0, 0, 0}, Text: strings.Repeat("字", 50), Bg: "#000000"})
+	}
+	f, err := uc.SaveFigure(seller, "I1", labels)
+	if err != nil || len(f.Parts) != 1+FigureLabelsMax {
+		t.Fatalf("札は %d 枚まで: %v %d", FigureLabelsMax, err, len(f.Parts))
+	}
+	for _, p := range f.Parts[1:] {
+		if p.Size[0] < 0.1 || p.Size[1] > p.Size[0] || p.Size[1] < p.Size[0]*0.1 || len([]rune(p.Text)) > FigureLabelMax {
+			t.Fatalf("札の大きさ・文字数: %+v", p)
+		}
+	}
+
+	// 売れた後は、出品者も「模型が無いときだけ」（購入者の箱庭の模型を差し替えない）
+	sold := &fakeItemStore{items: []model.Item{{Id: "SOLD", Seller: &model.Seller{Id: "S"}, Status: model.ItemSold}}}
+	st = &fakeFigureStore{saved: false}
+	uc2 := &ItemUsecase{Store: sold, Figures: st}
+	if _, err := uc2.SaveFigure(seller, "SOLD", fig()); !errors.Is(err, model.ErrFigureExists) || !st.gotOnly {
+		t.Fatalf("売れた後の出品者の上書き: %v only=%v", err, st.gotOnly)
+	}
+	st.saved = true
+	if _, err := uc2.SaveFigure(seller, "SOLD", fig()); err != nil {
+		t.Fatalf("売れた後でも、模型が無ければ出品者は保存できる: %v", err)
 	}
 	// DB の失敗はそのまま返す
 	uc.Figures = &fakeFigureStore{err: errors.New("db down")}

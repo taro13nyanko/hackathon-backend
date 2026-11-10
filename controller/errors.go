@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"encoding/json"
 	"errors"
 	"log"
 	"net/http"
@@ -39,4 +40,17 @@ func writeErr(w http.ResponseWriter, err error) {
 		log.Printf("fail: %v", err)
 		writeError(w, http.StatusInternalServerError, "internal")
 	}
+}
+
+// writeJSON は v を JSON で返す。
+func writeJSON(w http.ResponseWriter, status int, v any) {
+	b, err := json.Marshal(v)
+	if err != nil {
+		log.Printf("fail: json.Marshal, %v", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	w.Write(b)
 }
