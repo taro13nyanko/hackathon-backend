@@ -34,7 +34,8 @@ UTTC ハッカソン用のバックエンド（Go）。Cloud Run で動かし、
 | POST | `/items` | 🔒 表示名の登録が必要（未登録は 403 `profile_required`）。`{"title":"...","description":"...","price":1200}` で出品し、201 と `{"id":"..."}` を返す。商品名1〜40文字・説明1000文字まで・価格300〜9,999,999円（違反は 400） |
 | POST | `/items/description` | 🔒 Gemini で説明文の下書き。`{"title":"...","notes":"メモ"}`（商品名1〜40文字、メモ500文字まで）→ `{"description":"..."}`。メモに書かれた事実だけで300字程度。1人1分5回まで（超えたら 429）、Gemini の失敗は 502 `ai_failed` |
 | POST | `/figures` | 🔒 写真からデフォルメ3D模型の設計図を作る（箱庭用）。`{"image":"<base64 か data URL>","name":"商品名（任意）"}` → `{"figure":{"name","caption","parts":[...],"face":{...}}}`。画像は jpeg/png/webp・4MB まで。部品は40個まで、形・大きさ・色は範囲内に直して返す。1人1分3回まで（429）、Gemini の失敗や読めない出力は 502 `ai_failed` |
-| GET | `/items/{id}` | 商品1件。無ければ 404。商品の `seller` は `{"id","display_name"}`（見本データは `null`） |
+| PUT | `/items/{id}/figure` | 🔒 模型の設計図を商品に保存する（箱庭に並ぶ）。`{"figure":{...POST /figures の返り値...}}` → `{"figure":直した設計図}`。出品者はいつでも上書きでき、購入者は模型がまだ無いときだけ（あれば 409 `figure_exists`）、ほかの人は 403。保存前に POST /figures と同じ決まりで範囲内に直す（64KB まで）。**先に `sql/006_figures.sql` を実行すること** |
+| GET | `/items/{id}` | 商品1件。無ければ 404。商品の `seller` は `{"id","display_name"}`（見本データは `null`）、`figure` は保存された模型の設計図（無ければ `null`。一覧・マイページも同じ） |
 | POST | `/items/{id}/purchase` | 🔒 購入（決済なし）。201 と `{"purchase_id","item_id","price"}`。売り切れ・自分の商品は 409（`already_sold` / `own_item`）、無ければ 404。商品の行を `SELECT … FOR UPDATE` で押さえるので、同時に買われても1人だけ成功する |
 | POST | `/items/{id}/conversations` | 🔒 この商品の出品者とのやりとりを始める。あれば 200 で既存、無ければ 201。自分の商品は 409 `own_item`、見本データ（出品者なし）は 409 `no_seller` |
 | GET | `/conversations` | 🔒 自分のやりとり `[{"id","item","partner","last_message"}]`（最新メッセージが新しい順） |

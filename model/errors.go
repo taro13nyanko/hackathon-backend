@@ -18,3 +18,6 @@ var (
 	// ErrNoSeller は出品者がいない商品（見本データ）にメッセージを送ろうとしたとき（→ 409）。
 	ErrNoSeller = errors.New("no seller")
 )
+
+// ErrFigureExists は購入者が模型を保存しようとしたが、既に模型があるとき（→ 409）。出品者の模型は上書きしない。
+var ErrFigureExists = errors.New("figure exists")

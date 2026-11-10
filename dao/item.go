@@ -2,6 +2,7 @@ package dao
 
 import (
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -14,13 +15,18 @@ type ItemDao struct {
 }
 
 // itemCols は商品の列（別名 i）。itemCols を SELECT したら、itemScan で受ける。
-const itemCols = "i.id, i.title, i.description, i.price, i.status, i.created_at, i.photo_image_id, i.figure_image_id, i.figure_caption"
+const itemCols = "i.id, i.title, i.description, i.price, i.status, i.created_at, i.photo_image_id, i.figure_image_id, i.figure_caption, i.figure_json"
 
 // itemScan は itemCols を受ける Scan 先と、受けた後に NULL を空文字にする関数を返す。
 func itemScan(it *model.Item) ([]any, func()) {
-	var photo, figure sql.NullString
-	dest := []any{&it.Id, &it.Title, &it.Description, &it.Price, &it.Status, &it.CreatedAt, &photo, &figure, &it.FigureCaption}
-	return dest, func() { it.PhotoImageId, it.FigureImageId = photo.String, figure.String }
+	var photo, figure, figureJSON sql.NullString
+	dest := []any{&it.Id, &it.Title, &it.Description, &it.Price, &it.Status, &it.CreatedAt, &photo, &figure, &it.FigureCaption, &figureJSON}
+	return dest, func() {
+		it.PhotoImageId, it.FigureImageId = photo.String, figure.String
+		if figureJSON.Valid && figureJSON.String != "" {
+			it.Figure = json.RawMessage(figureJSON.String)
+		}
+	}
 }
 
 // 出品者の表示名は users から LEFT JOIN で取る（見本データは出品者なし → seller は null）。
@@ -128,6 +134,39 @@ func (d *ItemDao) Insert(it model.Item) error {
 		return fmt.Errorf("tx.Commit: %w", err)
 	}
 	return nil
+}
+
+// SaveFigure は商品に模型の設計図（JSON）と一言を保存する。
+// onlyIfEmpty なら、まだ模型が無いときだけ保存する（購入者用。出品者の模型を上書きしない）。
+// 保存しなかった（商品が無い・既に模型がある）ときは false。
+// ※ MySQL は前と同じ値への UPDATE を 0 行と数えるので、onlyIfEmpty でないときの false は「同じ模型を保存し直した」こともある。
+func (d *ItemDao) SaveFigure(id, figureJSON, caption string, onlyIfEmpty bool) (bool, error) {
+	q := "UPDATE item SET figure_json = ?, figure_caption = ? WHERE id = ?"
+	if onlyIfEmpty {
+		q += " AND figure_json IS NULL"
+	}
+	res, err := d.DB.Exec(q, figureJSON, caption, id)
+	if err != nil {
+		return false, fmt.Errorf("db.Exec: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("RowsAffected: %w", err)
+	}
+	return n == 1, nil
+}
+
+// BuyerOf はその商品を買った人の ID を返す。まだ誰も買っていなければ空文字。
+func (d *ItemDao) BuyerOf(itemId string) (string, error) {
+	var buyer string
+	err := d.DB.QueryRow("SELECT buyer_id FROM purchases WHERE item_id = ?", itemId).Scan(&buyer)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("db.QueryRow: %w", err)
+	}
+	return buyer, nil
 }
 
 func escapeLike(s string) string {

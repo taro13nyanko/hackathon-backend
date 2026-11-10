@@ -1,6 +1,9 @@
 package model
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 // 商品の状態。
 const (
@@ -17,10 +20,12 @@ type Item struct {
 	Status      string  `json:"status"`
 	Seller      *Seller `json:"seller"` // 見本データは null
 	// 写真と、Gemini が作る模型の絵（images テーブルの ID。無ければ空）。画像は GET /images/{id}
-	PhotoImageId  string    `json:"photo_image_id"`
-	FigureImageId string    `json:"figure_image_id"`
-	FigureCaption string    `json:"figure_caption"`
-	CreatedAt     time.Time `json:"created_at"`
+	PhotoImageId  string `json:"photo_image_id"`
+	FigureImageId string `json:"figure_image_id"`
+	FigureCaption string `json:"figure_caption"`
+	// 保存された模型の設計図（POST /figures が返す形の JSON）。無ければ null。PUT /items/{id}/figure で保存する
+	Figure    json.RawMessage `json:"figure"`
+	CreatedAt time.Time       `json:"created_at"`
 }
 
 // ItemCreateReq は POST /items のリクエストボディ。

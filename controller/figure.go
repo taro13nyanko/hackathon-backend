@@ -20,13 +20,37 @@ import (
 //
 // ログイン＋表示名の登録が必要。1人1分6回まで（429 too_many）。
 // 画像は jpeg / png / webp、4MB まで（400 invalid_input）。Gemini の失敗や読めない出力は 502 ai_failed。
+//
+// 保存：PUT /items/{id}/figure  {"figure": {...}} → 200 {"figure": 直した設計図}
+// 出品者はいつでも（上書き）、購入者は模型がまだ無いときだけ（あれば 409 figure_exists）、ほかの人は 403。
 type FigureController struct {
 	Usecase *usecase.FigureUsecase
+	Items   *usecase.ItemUsecase // 模型の保存用
 	Auth    *Auth
 }
 
 func (c *FigureController) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /figures", c.Auth.RequireMember(c.create))
+	if c.Items != nil {
+		mux.HandleFunc("PUT /items/{id}/figure", c.Auth.RequireMember(c.save))
+	}
+}
+
+func (c *FigureController) save(w http.ResponseWriter, r *http.Request, me model.Member) {
+	r.Body = http.MaxBytesReader(w, r.Body, usecase.FigureJSONMax*2)
+	var req struct {
+		Figure *usecase.Figure `json:"figure"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Figure == nil {
+		writeError(w, http.StatusBadRequest, "invalid_input")
+		return
+	}
+	fig, err := c.Items.SaveFigure(me, r.PathValue("id"), req.Figure)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"figure": fig})
 }
 
 type figureReq struct {
