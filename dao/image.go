@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"time"
 
 	"hackathon-backend/model"
 	"hackathon-backend/usecase"
@@ -37,10 +38,10 @@ func (d *ImageDao) Get(id string) (model.Image, error) {
 	return img, nil
 }
 
-// CountByOwner はその人が上げた画像の枚数（idx_images_owner を使う）。
-func (d *ImageDao) CountByOwner(ownerId string) (int, error) {
+// CountByOwnerSince はその人が since 以降に上げた画像の枚数（idx_images_owner (owner_id, created_at) を使う）。
+func (d *ImageDao) CountByOwnerSince(ownerId string, since time.Time) (int, error) {
 	var n int
-	if err := d.DB.QueryRow("SELECT COUNT(*) FROM images WHERE owner_id = ?", ownerId).Scan(&n); err != nil {
+	if err := d.DB.QueryRow("SELECT COUNT(*) FROM images WHERE owner_id = ? AND created_at >= ?", ownerId, since).Scan(&n); err != nil {
 		return 0, fmt.Errorf("count images: %w", err)
 	}
 	return n, nil

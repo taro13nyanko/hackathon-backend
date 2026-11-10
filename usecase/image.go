@@ -12,9 +12,10 @@ import (
 // ImageMaxBytes は1枚の上限。画面で 768px の JPEG に縮めてから送るので、ふつうは 100KB 前後。
 const ImageMaxBytes = 1_500_000
 
-// ImagePerUserMax は1人が上げられる画像の合計枚数（DB で数えるので、サーバーの台数に関係なく効く）。
+// ImagePerDayMax は1人が24時間に上げられる画像の枚数（DB で数えるので、サーバーの台数に関係なく効く）。
+// 写真は選んだ時点で上がる（選び直した分も数える）ので、合計ではなく24時間ごとにする。
 // 1枚は 768px の JPEG で 100KB 前後なので、100枚でも 10MB ほど。
-const ImagePerUserMax = 100
+const ImagePerDayMax = 100
 
 // 受け付ける画像の形式（中身の先頭バイトで判定する。拡張子や申告は信用しない）。
 var imageTypes = map[string]bool{"image/jpeg": true, "image/png": true, "image/webp": true}
@@ -26,8 +27,8 @@ type ImageStore interface {
 	Get(id string) (model.Image, error)
 	// OwnerOf は画像を上げた人の ID。無ければ model.ErrNotFound。
 	OwnerOf(id string) (string, error)
-	// CountByOwner はその人が上げた画像の枚数。
-	CountByOwner(ownerId string) (int, error)
+	// CountByOwnerSince はその人が since 以降に上げた画像の枚数。
+	CountByOwnerSince(ownerId string, since time.Time) (int, error)
 }
 
 type ImageUsecase struct {
@@ -48,16 +49,16 @@ func (uc *ImageUsecase) Upload(me model.Member, data []byte) (string, error) {
 	if !uc.Limit.Allow(me.Id) {
 		return "", ErrTooMany
 	}
-	n, err := uc.Store.CountByOwner(me.Id)
-	if err != nil {
-		return "", err
-	}
-	if n >= ImagePerUserMax {
-		return "", ErrTooMany
-	}
 	now := time.Now
 	if uc.Now != nil {
 		now = uc.Now
+	}
+	n, err := uc.Store.CountByOwnerSince(me.Id, now().Add(-24*time.Hour))
+	if err != nil {
+		return "", err
+	}
+	if n >= ImagePerDayMax {
+		return "", model.ErrImageQuota
 	}
 	img := model.Image{Id: ulid.Make().String(), OwnerId: me.Id, ContentType: ct, Data: data, CreatedAt: now().Truncate(time.Second)}
 	if err := uc.Store.Insert(img); err != nil {

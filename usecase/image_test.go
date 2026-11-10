@@ -24,10 +24,10 @@ func (f *fakeImageStore) Get(id string) (model.Image, error) {
 	}
 	return model.Image{}, model.ErrNotFound
 }
-func (f *fakeImageStore) CountByOwner(owner string) (int, error) {
+func (f *fakeImageStore) CountByOwnerSince(owner string, since time.Time) (int, error) {
 	n := 0
 	for _, img := range f.imgs {
-		if img.OwnerId == owner {
+		if img.OwnerId == owner && !img.CreatedAt.Before(since) {
 			n++
 		}
 	}
@@ -92,15 +92,20 @@ func TestCreateItemWithPhoto(t *testing.T) {
 func TestUploadImageLimits(t *testing.T) {
 	jpeg := append([]byte{0xFF, 0xD8, 0xFF, 0xE0}, make([]byte, 64)...)
 	store := &fakeImageStore{}
-	uc := &ImageUsecase{Store: store}
+	now := time.Date(2026, 11, 10, 12, 0, 0, 0, time.UTC)
+	uc := &ImageUsecase{Store: store, Now: func() time.Time { return now }}
 	me := model.Member{Id: "M1"}
-	for i := 0; i < ImagePerUserMax; i++ {
+	for i := 0; i < ImagePerDayMax; i++ {
 		if _, err := uc.Upload(me, jpeg); err != nil {
 			t.Fatalf("%d 枚目: %v", i+1, err)
 		}
 	}
-	if _, err := uc.Upload(me, jpeg); !errors.Is(err, ErrTooMany) {
-		t.Fatalf("%d 枚を超えたら ErrTooMany: %v", ImagePerUserMax, err)
+	if _, err := uc.Upload(me, jpeg); !errors.Is(err, model.ErrImageQuota) {
+		t.Fatalf("24時間に %d 枚を超えたら ErrImageQuota: %v", ImagePerDayMax, err)
+	}
+	now = now.Add(24*time.Hour + time.Second)
+	if _, err := uc.Upload(me, jpeg); err != nil {
+		t.Fatalf("24時間たてばまた上げられる（一生上げられなくなることはない）: %v", err)
 	}
 	if _, err := uc.Upload(model.Member{Id: "M2"}, jpeg); err != nil {
 		t.Fatalf("ほかの人は上げられる: %v", err)
