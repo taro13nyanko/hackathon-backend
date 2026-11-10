@@ -37,7 +37,8 @@ func main() {
 	authz := &controller.Auth{Verifier: auth.NewVerifier(projectID), Members: members}
 
 	images := &dao.ImageDao{DB: db}
-	items := &usecase.ItemUsecase{Store: &dao.ItemDao{DB: db}, Images: images}
+	itemDao := &dao.ItemDao{DB: db}
+	items := &usecase.ItemUsecase{Store: itemDao, Images: images, Figures: itemDao}
 	imageCtrl := &controller.ImageController{Usecase: &usecase.ImageUsecase{Store: images}, Auth: authz}
 	itemCtrl := &controller.ItemController{Usecase: items, Auth: authz}
 	meCtrl := &controller.MeController{Usecase: members, Auth: authz}
@@ -73,7 +74,8 @@ func main() {
 				JSONSchema: usecase.FigureSchema,
 			},
 		},
-		Auth: authz,
+		Items: items,
+		Auth:  authz,
 	}
 	dmCtrl := &controller.DMController{
 		Usecase: &usecase.DMUsecase{Store: &dao.DMDao{DB: db}, Items: &dao.ItemDao{DB: db}},
@@ -85,7 +87,7 @@ func main() {
 	meCtrl.Register(mux)       // GET/POST /me
 	purchaseCtrl.Register(mux) // POST /items/{id}/purchase, GET /me/items, GET /me/purchases
 	descCtrl.Register(mux)     // POST /items/description
-	figureCtrl.Register(mux)   // POST /figures
+	figureCtrl.Register(mux)   // POST /figures, PUT /items/{id}/figure
 	imageCtrl.Register(mux)    // POST /images, GET /images/{id}
 	dmCtrl.Register(mux)       // POST /items/{id}/conversations, GET /conversations, GET/POST /conversations/{id}/messages
 	mux.Handle("/user", userCtrl)

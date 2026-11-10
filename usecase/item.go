@@ -27,9 +27,10 @@ type ItemStore interface {
 }
 
 type ItemUsecase struct {
-	Store  ItemStore
-	Images ImageStore       // 写真が本人のものか確かめるため
-	Now    func() time.Time // テストで時刻を固定するため。nil なら time.Now
+	Store   ItemStore
+	Images  ImageStore       // 写真が本人のものか確かめるため
+	Figures ItemFigureStore  // 模型の保存（PUT /items/{id}/figure）。nil なら保存できない
+	Now     func() time.Time // テストで時刻を固定するため。nil なら time.Now
 }
 
 func (uc *ItemUsecase) now() time.Time {

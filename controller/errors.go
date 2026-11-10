@@ -31,6 +31,8 @@ func writeErr(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusConflict, "own_item")
 	case errors.Is(err, model.ErrNoSeller):
 		writeError(w, http.StatusConflict, "no_seller")
+	case errors.Is(err, model.ErrFigureExists):
+		writeError(w, http.StatusConflict, "figure_exists")
 	case errors.Is(err, model.ErrForbidden):
 		writeError(w, http.StatusForbidden, "forbidden")
 	default:
