@@ -79,6 +79,12 @@ func main() {
 		Auth:    authz,
 	}
 
+	// 箱庭の配置（模型をつかんで動かした場所）
+	gardenCtrl := &controller.GardenController{
+		Usecase: &usecase.GardenUsecase{Store: &dao.GardenDao{DB: db}, Limit: usecase.NewLimiter(30, time.Minute)},
+		Auth:    authz,
+	}
+
 	mux := http.NewServeMux()
 	itemCtrl.Register(mux)     // GET/POST /items, GET /items/{id}
 	meCtrl.Register(mux)       // GET/POST /me
@@ -86,6 +92,7 @@ func main() {
 	descCtrl.Register(mux)     // POST /items/description
 	figureCtrl.Register(mux)   // POST /figures, PUT /items/{id}/figure
 	imageCtrl.Register(mux)    // POST /images, GET /images/{id}
+	gardenCtrl.Register(mux)   // GET/PUT /me/garden
 	dmCtrl.Register(mux)       // POST /items/{id}/conversations, GET /conversations, GET/POST /conversations/{id}/messages
 	// 動作確認用（DB まで届くか見る）。Cloud Run では z で終わるパス（/healthz）は予約されていて届かないので /health にする
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
