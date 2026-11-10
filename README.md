@@ -35,6 +35,8 @@ UTTC ハッカソン用のバックエンド（Go）。Cloud Run で動かし、
 | POST | `/items/description` | 🔒 Gemini で説明文の下書き。`{"title":"...","notes":"メモ"}`（商品名1〜40文字、メモ500文字まで）→ `{"description":"..."}`。メモに書かれた事実だけで300字程度。1人1分5回まで（超えたら 429）、Gemini の失敗は 502 `ai_failed` |
 | POST | `/figures` | 🔒 写真からデフォルメ3D模型の設計図を作る（箱庭用）。`{"image":"<base64 か data URL>","name":"商品名（任意）"}` → `{"figure":{"name","caption","parts":[...],"face":{...}}}`。画像は jpeg/png/webp・4MB まで。部品は40個まで、形・大きさ・色は範囲内に直して返す。1人1分3回まで（429）、Gemini の失敗や読めない出力は 502 `ai_failed` |
 | PUT | `/items/{id}/figure` | 🔒 模型の設計図を商品に保存する（箱庭に並ぶ）。`{"figure":{...POST /figures の返り値...}}` → `{"figure":直した設計図}`。出品者はいつでも上書きでき、購入者は模型がまだ無いときだけ（あれば 409 `figure_exists`）、ほかの人は 403。保存前に POST /figures と同じ決まりで範囲内に直す（64KB まで）。**先に `sql/006_figures.sql` を実行すること** |
+| GET | `/me/garden` | 🔒 自分の箱庭の配置（模型をつかんで動かした場所）。`{"spots":[{"item_id","x","z"}]}`。まだ動かしていなければ空の配列 |
+| PUT | `/me/garden` | 🔒 配置をまとめて保存（前の配置は消える。空の `spots` で並べ直し）。自分が出品した商品と買った商品だけ（ほかは 403）、200 個まで、位置は ±20 に直す、1分30回まで。**先に `sql/007_garden.sql` を実行すること** |
 | GET | `/items/{id}` | 商品1件。無ければ 404。商品の `seller` は `{"id","display_name"}`（見本データは `null`）、`figure` は保存された模型の設計図（無ければ `null`。一覧・マイページも同じ） |
 | POST | `/items/{id}/purchase` | 🔒 購入（決済なし）。201 と `{"purchase_id","item_id","price"}`。売り切れ・自分の商品は 409（`already_sold` / `own_item`）、無ければ 404。商品の行を `SELECT … FOR UPDATE` で押さえるので、同時に買われても1人だけ成功する |
 | POST | `/items/{id}/conversations` | 🔒 この商品の出品者とのやりとりを始める。あれば 200 で既存、無ければ 201。自分の商品は 409 `own_item`、見本データ（出品者なし）は 409 `no_seller` |
