@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"encoding/json"
 	"errors"
 	"log"
 	"net/http"
@@ -31,6 +32,8 @@ func writeErr(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusConflict, "own_item")
 	case errors.Is(err, model.ErrNoSeller):
 		writeError(w, http.StatusConflict, "no_seller")
+	case errors.Is(err, model.ErrImageQuota):
+		writeError(w, http.StatusTooManyRequests, "image_quota")
 	case errors.Is(err, model.ErrFigureExists):
 		writeError(w, http.StatusConflict, "figure_exists")
 	case errors.Is(err, model.ErrForbidden):
@@ -39,4 +42,17 @@ func writeErr(w http.ResponseWriter, err error) {
 		log.Printf("fail: %v", err)
 		writeError(w, http.StatusInternalServerError, "internal")
 	}
+}
+
+// writeJSON は v を JSON で返す。
+func writeJSON(w http.ResponseWriter, status int, v any) {
+	b, err := json.Marshal(v)
+	if err != nil {
+		log.Printf("fail: json.Marshal, %v", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	w.Write(b)
 }

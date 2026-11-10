@@ -30,6 +30,7 @@ type ItemUsecase struct {
 	Store   ItemStore
 	Images  ImageStore       // 写真が本人のものか確かめるため
 	Figures ItemFigureStore  // 模型の保存（PUT /items/{id}/figure）。nil なら保存できない
+	Limit   *Limiter         // 出品の回数制限（nil なら無し）
 	Now     func() time.Time // テストで時刻を固定するため。nil なら time.Now
 }
 
@@ -83,6 +84,9 @@ func (uc *ItemUsecase) Create(seller model.Member, req model.ItemCreateReq) (mod
 		if err != nil || owner != seller.Id {
 			return model.ItemCreateRes{}, ErrInvalidInput
 		}
+	}
+	if !uc.Limit.Allow(seller.Id) {
+		return model.ItemCreateRes{}, ErrTooMany
 	}
 	it := model.Item{
 		Id:           ulid.Make().String(),

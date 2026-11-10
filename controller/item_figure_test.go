@@ -136,6 +136,9 @@ func TestSaveFigure(t *testing.T) {
 	if rec := doAuth(h, "PUT", path, okFigure, "tok-o"); rec.Code != 403 {
 		t.Fatalf("買っていない人は売り切れ後も 403: %d", rec.Code)
 	}
+	if rec := doAuth(h, "PUT", path, okFigure, "tok-s"); rec.Code != 409 || errCode(rec) != "figure_exists" {
+		t.Fatalf("売れた後は出品者も上書きできない: %d %s", rec.Code, rec.Body)
+	}
 
 	// 模型の無い商品なら、購入者が保存できる（1回だけ）
 	b := newItem()

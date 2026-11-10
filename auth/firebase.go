@@ -36,9 +36,11 @@ type Verifier struct {
 	FetchCerts func(ctx context.Context) (map[string]*rsa.PublicKey, time.Duration, error)
 	Now        func() time.Time
 
-	mu      sync.Mutex
-	keys    map[string]*rsa.PublicKey
-	expires time.Time
+	mu        sync.Mutex
+	keys      map[string]*rsa.PublicKey
+	expires   time.Time
+	lastFetch time.Time  // 最後に公開鍵を取りに行った時刻
+	fetchMu   sync.Mutex // 取りに行くのは同時に1つだけ
 }
 
 // NewVerifier は projectID（Firebase のプロジェクト ID）用の Verifier を作る。
@@ -111,26 +113,65 @@ func (v *Verifier) now() time.Time {
 	return time.Now()
 }
 
+// RefetchMin は、知らない kid が来たときに公開鍵を取り直す最短の間隔。
+// でたらめな kid の偽トークンを連打されても、Google への取得は1分に1回までになる。
+const RefetchMin = time.Minute
+
 // key は kid に対応する公開鍵を返す。鍵はキャッシュし、期限が切れたら取り直す。
+// 取得に失敗しても、前に取れた鍵があればそれを使い続ける。
 func (v *Verifier) key(ctx context.Context, kid string) (*rsa.PublicKey, error) {
+	if k, fresh := v.cached(kid); k != nil && fresh {
+		return k, nil
+	}
+	// 取りに行くのは同時に1つだけ（ほかの人は、取り終わるのを待ってから表を見直す）
+	v.fetchMu.Lock()
+	defer v.fetchMu.Unlock()
+	k, fresh := v.cached(kid)
+	if k != nil && fresh {
+		return k, nil
+	}
 	v.mu.Lock()
-	defer v.mu.Unlock()
-	if v.keys == nil || v.now().After(v.expires) || v.keys[kid] == nil {
-		fetch := v.FetchCerts
-		if fetch == nil {
-			fetch = fetchCerts
+	hasKeys, recent := v.keys != nil, !v.lastFetch.IsZero() && v.now().Sub(v.lastFetch) < RefetchMin
+	v.mu.Unlock()
+	if hasKeys && recent {
+		if k != nil {
+			return k, nil // 期限切れだが、取り直したばかりなので古い鍵で続ける
 		}
-		keys, maxAge, err := fetch(ctx)
-		if err != nil {
-			return nil, fmt.Errorf("公開鍵の取得: %w", err)
-		}
+		return nil, ErrInvalidToken // 知らない kid。直前に取り直しているので、もう取りに行かない
+	}
+
+	fetch := v.FetchCerts
+	if fetch == nil {
+		fetch = fetchCerts
+	}
+	keys, maxAge, err := fetch(ctx)
+	v.mu.Lock()
+	v.lastFetch = v.now()
+	if err == nil {
 		v.keys, v.expires = keys, v.now().Add(maxAge)
 	}
-	k := v.keys[kid]
-	if k == nil {
+	k2 := v.keys[kid]
+	v.mu.Unlock()
+	if err != nil {
+		if k != nil {
+			return k, nil
+		}
+		if !hasKeys {
+			return nil, fmt.Errorf("公開鍵の取得: %w", err)
+		}
 		return nil, ErrInvalidToken
 	}
-	return k, nil
+	if k2 == nil {
+		return nil, ErrInvalidToken
+	}
+	return k2, nil
+}
+
+// cached は表にある鍵と、表がまだ期限内かを返す。
+func (v *Verifier) cached(kid string) (*rsa.PublicKey, bool) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	return v.keys[kid], v.keys != nil && !v.now().After(v.expires)
 }
 
 func decodePart(s string, v any) error {
@@ -141,6 +182,9 @@ func decodePart(s string, v any) error {
 	return json.Unmarshal(b, v)
 }
 
+// certsClient は公開鍵の取得用（Google が応答しないときに待ち続けないよう、5秒で打ち切る）。
+var certsClient = &http.Client{Timeout: 5 * time.Second}
+
 // fetchCerts は Google から公開鍵（kid → PEM 形式の証明書）を取ってくる。
 // Cache-Control の max-age の間はキャッシュしてよい、と決められている。
 func fetchCerts(ctx context.Context) (map[string]*rsa.PublicKey, time.Duration, error) {
@@ -148,7 +192,7 @@ func fetchCerts(ctx context.Context) (map[string]*rsa.PublicKey, time.Duration, 
 	if err != nil {
 		return nil, 0, err
 	}
-	res, err := http.DefaultClient.Do(req)
+	res, err := certsClient.Do(req)
 	if err != nil {
 		return nil, 0, err
 	}

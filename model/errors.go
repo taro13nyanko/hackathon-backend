@@ -19,5 +19,8 @@ var (
 	ErrNoSeller = errors.New("no seller")
 )
 
+// ErrImageQuota は24時間に上げられる画像の枚数を超えたとき（→ 429 image_quota）。
+var ErrImageQuota = errors.New("image quota")
+
 // ErrFigureExists は購入者が模型を保存しようとしたが、既に模型があるとき（→ 409）。出品者の模型は上書きしない。
 var ErrFigureExists = errors.New("figure exists")

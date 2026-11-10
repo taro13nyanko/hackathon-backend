@@ -9,7 +9,7 @@ import (
 // 模型の設計図を商品に保存する（箱庭に並べるため）。
 //
 // 保存できるのは
-//   - 出品者：いつでも（作り直したら上書き）
+//   - 出品者：売れるまではいつでも（作り直したら上書き）。売れた後は模型がまだ無いときだけ（購入者の箱庭の模型を差し替えない）
 //   - 購入者：まだ模型が無いときだけ（出品者の模型を上書きしない。既にあれば 409 figure_exists）
 //
 // それ以外の人は 403。設計図は POST /figures と同じ決まり（ParseFigure）で範囲内に直してから保存する。
@@ -34,7 +34,7 @@ func (uc *ItemUsecase) SaveFigure(me model.Member, itemId string, f *Figure) (Fi
 	}
 
 	// 誰が保存できるか
-	onlyIfEmpty := false
+	onlyIfEmpty := it.Status == model.ItemSold
 	if it.Seller == nil || it.Seller.Id != me.Id {
 		buyer, err := uc.Figures.BuyerOf(itemId)
 		if err != nil {

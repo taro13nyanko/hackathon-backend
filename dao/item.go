@@ -49,7 +49,10 @@ func scanItem(s scanner) (model.Item, error) {
 	return it, nil
 }
 
-// FindAll は新しい順に商品を返す。keyword が空でなければ、タイトルか説明文に含むものだけ。
+// ItemListMax は一覧で返す件数の上限（新しい順に）。
+const ItemListMax = 100
+
+// FindAll は新しい順に商品を ItemListMax 件まで返す。keyword が空でなければ、タイトルか説明文に含むものだけ。
 func (d *ItemDao) FindAll(keyword string) ([]model.Item, error) {
 	query := itemSelect
 	args := []any{}
@@ -59,7 +62,8 @@ func (d *ItemDao) FindAll(keyword string) ([]model.Item, error) {
 		query += " WHERE i.title LIKE ? OR i.description LIKE ?"
 		args = append(args, like, like)
 	}
-	query += " ORDER BY i.created_at DESC, i.id DESC"
+	query += " ORDER BY i.created_at DESC, i.id DESC LIMIT ?"
+	args = append(args, ItemListMax)
 
 	rows, err := d.DB.Query(query, args...)
 	if err != nil {

@@ -8,7 +8,7 @@ UTTC ハッカソン用のバックエンド（Go）。Cloud Run で動かし、
 | `main.go` | 起動・ルーティング・終了処理（SIGTERM で処理中のリクエストを終えてから止まる） |
 | `gemini/` | Vertex AI の Gemini を REST で呼ぶ（標準ライブラリだけ。認証は Cloud Run のサービスアカウント） |
 | `auth/` | Firebase の ID トークンの確認（署名・期限・宛先。標準ライブラリだけ） |
-| `controller/` | HTTP の受け口（`/me`・`/items`・`/user`・`/users`）、ログイン確認、CORS |
+| `controller/` | HTTP の受け口（`/me`・`/items` ほか）、ログイン確認、CORS |
 | `usecase/` | 入力チェック（表示名・商品）と ID 採番（ULID） |
 | `dao/` | SQL と DB 接続（接続情報はすべて環境変数） |
 | `model/` | 構造体 |
@@ -41,9 +41,6 @@ UTTC ハッカソン用のバックエンド（Go）。Cloud Run で動かし、
 | GET | `/conversations` | 🔒 自分のやりとり `[{"id","item","partner","last_message"}]`（最新メッセージが新しい順） |
 | GET | `/conversations/{id}/messages` | 🔒 メッセージ（古い順）。`?after=<メッセージID>` でそれより新しいものだけ（画面は5秒ごとに呼ぶ）。参加者以外は 403 |
 | POST | `/conversations/{id}/messages` | 🔒 `{"body":"..."}`（1〜1000文字）を送り 201 |
-| GET | `/users` | 全ユーザー |
-| GET | `/user?name=hanako` | 名前が一致するユーザーの配列（0件なら `[]`） |
-| POST | `/user` | `{"name":"hanako","age":20}` を登録し `{"id":"..."}` を返す |
 | GET | `/health` | DB に届けば `ok`（Cloud Run では `/healthz` は予約パスで使えない） |
 
 ## 環境変数
@@ -75,3 +72,14 @@ $env:MYSQL_USER="uttc"; $env:MYSQL_PWD="..."; $env:MYSQL_DATABASE="hackathon"; $
 go run .
 go test ./...
 ```
+
+## 悪用への歯止め（2026-11 のセキュリティ点検で追加）
+- 本文の上限：JSON を受ける API は 256KB まで（`controller/limit.go`）。画像は 1.5MB、模型づくりは画像2枚ぶん
+- 回数制限（1人あたり・サーバー1台のメモリ内）：出品 10回/分、メッセージ 30回/分、画像 10枚/分、説明文 5回/分、模型づくり 6回/分
+- 画像は1人 24時間に 100 枚まで（DB で数える。超えたら 429 `image_quota`）
+- 商品一覧は新しい順に 100 件まで
+- 模型の「札」は1つの模型に6枚まで、幅 0.1 以上、高さ÷幅 0.1〜1
+- 売れた後は、出品者も模型を上書きできない（購入者の箱庭を守る）
+- Firebase の公開鍵は、知らない kid が来ても取り直しは1分に1回まで（取得は5秒で打ち切り、失敗したら古い鍵を使う）
+- サーバーのタイムアウト：ヘッダー 10秒、本文 60秒、応答 300秒、待機 120秒
+- 課題用の `/user`・`/users` は消した（だれでも書き込めたため。`user` テーブルは DB に残っている）

@@ -31,6 +31,7 @@ type DMStore interface {
 type DMUsecase struct {
 	Store DMStore
 	Items ItemStore
+	Limit *Limiter // メッセージ送信の回数制限（nil なら無し）
 	Now   func() time.Time
 }
 
@@ -105,6 +106,9 @@ func (uc *DMUsecase) Send(me model.Member, id string, req model.MessageCreateReq
 	}
 	if err := uc.check(me, id); err != nil {
 		return model.Message{}, err
+	}
+	if !uc.Limit.Allow(me.Id) {
+		return model.Message{}, ErrTooMany
 	}
 	m := model.Message{Id: ulid.Make().String(), SenderId: me.Id, Body: body, CreatedAt: uc.now().Truncate(time.Second)}
 	if err := uc.Store.InsertMessage(id, m); err != nil {

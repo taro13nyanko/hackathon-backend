@@ -121,3 +121,50 @@ func TestMaxAge(t *testing.T) {
 		t.Fatalf("default: got %v", got)
 	}
 }
+
+func TestKeyRefetchIsThrottled(t *testing.T) {
+	const project = "test-project"
+	key, _ := rsa.GenerateKey(rand.Reader, 2048)
+	now := time.Date(2026, 11, 10, 12, 0, 0, 0, time.UTC)
+	fetches, fail := 0, false
+	v := &Verifier{
+		ProjectID: project,
+		Now:       func() time.Time { return now },
+		FetchCerts: func(context.Context) (map[string]*rsa.PublicKey, time.Duration, error) {
+			fetches++
+			if fail {
+				return nil, 0, errors.New("google down")
+			}
+			return map[string]*rsa.PublicKey{"k1": &key.PublicKey}, time.Hour, nil
+		},
+	}
+	claims := func() map[string]any {
+		return map[string]any{
+			"iss": "https://securetoken.google.com/" + project, "aud": project, "sub": "uid-1",
+			"iat": now.Add(-time.Minute).Unix(), "exp": now.Add(2 * time.Hour).Unix(), "auth_time": now.Add(-time.Minute).Unix(),
+		}
+	}
+	if _, err := v.Verify(context.Background(), makeToken(t, key, "k1", claims())); err != nil {
+		t.Fatal(err)
+	}
+	// でたらめな kid を100回送っても、取り直しは1分に1回まで
+	for i := 0; i < 100; i++ {
+		if _, err := v.Verify(context.Background(), makeToken(t, key, "evil", claims())); !errors.Is(err, ErrInvalidToken) {
+			t.Fatalf("知らない kid: %v", err)
+		}
+	}
+	if fetches > 1 {
+		t.Fatalf("知らない kid で取り直しすぎ: %d 回", fetches)
+	}
+	now = now.Add(2 * time.Minute)
+	v.Verify(context.Background(), makeToken(t, key, "evil", claims()))
+	if fetches != 2 {
+		t.Fatalf("1分たてば1回だけ取り直す: %d 回", fetches)
+	}
+	// 鍵の期限が切れて、しかも Google から取れないときも、前の鍵で続ける
+	now = now.Add(2 * time.Hour)
+	fail = true
+	if uid, err := v.Verify(context.Background(), makeToken(t, key, "k1", claims())); err != nil || uid != "uid-1" {
+		t.Fatalf("取得に失敗しても古い鍵で確認できる: %q %v", uid, err)
+	}
+}
