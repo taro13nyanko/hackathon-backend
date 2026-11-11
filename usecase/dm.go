@@ -5,8 +5,6 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/oklog/ulid/v2"
-
 	"hackathon-backend/model"
 )
 
@@ -57,12 +55,7 @@ func (uc *DMUsecase) Start(me model.Member, itemId string) (model.Conversation, 
 	case it.Seller.Id == me.Id:
 		return model.Conversation{}, false, model.ErrOwnItem
 	}
-	id, created, err := uc.Store.FindOrCreate(model.Conversation{
-		Id:        ulid.Make().String(),
-		Item:      it,
-		BuyerId:   me.Id,
-		CreatedAt: uc.now().Truncate(time.Second),
-	})
+	id, created, err := uc.Store.FindOrCreate(model.NewConversation(it, me.Id, uc.now()))
 	if err != nil {
 		return model.Conversation{}, false, err
 	}
@@ -110,7 +103,7 @@ func (uc *DMUsecase) Send(me model.Member, id string, req model.MessageCreateReq
 	if !uc.Limit.Allow(me.Id) {
 		return model.Message{}, ErrTooMany
 	}
-	m := model.Message{Id: ulid.Make().String(), SenderId: me.Id, Body: body, CreatedAt: uc.now().Truncate(time.Second)}
+	m := model.NewMessage(me.Id, body, uc.now())
 	if err := uc.Store.InsertMessage(id, m); err != nil {
 		return model.Message{}, err
 	}

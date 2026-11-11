@@ -5,8 +5,6 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/oklog/ulid/v2"
-
 	"hackathon-backend/model"
 )
 
@@ -41,12 +39,7 @@ func (uc *MemberUsecase) Register(uid string, req model.MemberCreateReq) (model.
 	if uc.Now != nil {
 		now = uc.Now
 	}
-	m := model.Member{
-		Id:          ulid.Make().String(),
-		FirebaseUID: uid,
-		DisplayName: name,
-		CreatedAt:   now().Truncate(time.Second),
-	}
+	m := model.NewMember(uid, name, now())
 	if err := uc.Store.Insert(m); err != nil {
 		return model.Member{}, err
 	}
