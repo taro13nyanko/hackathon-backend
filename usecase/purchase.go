@@ -3,8 +3,6 @@ package usecase
 import (
 	"time"
 
-	"github.com/oklog/ulid/v2"
-
 	"hackathon-backend/model"
 )
 
@@ -32,12 +30,7 @@ func (uc *PurchaseUsecase) Buy(buyer model.Member, itemId string) (model.Purchas
 	if uc.Now != nil {
 		now = uc.Now
 	}
-	p, err := uc.Store.Buy(model.Purchase{
-		Id:        ulid.Make().String(),
-		Item:      model.Item{Id: itemId},
-		BuyerId:   buyer.Id,
-		CreatedAt: now().Truncate(time.Second),
-	})
+	p, err := uc.Store.Buy(model.NewPurchase(itemId, buyer.Id, now()))
 	if err != nil {
 		return model.PurchaseRes{}, err
 	}

@@ -5,8 +5,6 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/oklog/ulid/v2"
-
 	"hackathon-backend/model"
 )
 
@@ -88,16 +86,8 @@ func (uc *ItemUsecase) Create(seller model.Member, req model.ItemCreateReq) (mod
 	if !uc.Limit.Allow(seller.Id) {
 		return model.ItemCreateRes{}, ErrTooMany
 	}
-	it := model.Item{
-		Id:           ulid.Make().String(),
-		Title:        title,
-		Description:  desc,
-		Price:        req.Price,
-		Status:       model.ItemOnSale,
-		Seller:       &model.Seller{Id: seller.Id, DisplayName: seller.DisplayName},
-		PhotoImageId: req.PhotoImageId,
-		CreatedAt:    uc.now().Truncate(time.Second), // DATETIME は秒まで
-	}
+	// ID・作成日時・出品中の状態は model のコンストラクタが決める
+	it := model.NewItem(title, desc, req.Price, model.Seller{Id: seller.Id, DisplayName: seller.DisplayName}, req.PhotoImageId, uc.now())
 	if err := uc.Store.Insert(it); err != nil {
 		return model.ItemCreateRes{}, err
 	}

@@ -4,8 +4,6 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/oklog/ulid/v2"
-
 	"hackathon-backend/model"
 )
 
@@ -60,7 +58,7 @@ func (uc *ImageUsecase) Upload(me model.Member, data []byte) (string, error) {
 	if n >= ImagePerDayMax {
 		return "", model.ErrImageQuota
 	}
-	img := model.Image{Id: ulid.Make().String(), OwnerId: me.Id, ContentType: ct, Data: data, CreatedAt: now().Truncate(time.Second)}
+	img := model.NewImage(me.Id, ct, data, now())
 	if err := uc.Store.Insert(img); err != nil {
 		return "", err
 	}
