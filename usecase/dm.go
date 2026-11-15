@@ -1,6 +1,7 @@
 package usecase
 
 import (
+	"log"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -24,6 +25,12 @@ type DMStore interface {
 	// Messages は afterId より新しいメッセージを古い順に返す（afterId が空なら全部）。
 	Messages(conversationId, afterId string) ([]model.Message, error)
 	InsertMessage(conversationId string, m model.Message) error
+	// UnreadCounts は viewerId の未読の数（やりとりの ID → 数）。未読が0のやりとりは入らない。
+	// 未読＝相手が送った、既読の位置より新しいメッセージ。1本の SQL で全部のやりとりを数える。
+	UnreadCounts(viewerId string) (map[string]int, error)
+	// MarkRead は userId の既読の位置を、やりとり内の upTo 以下で最新のメッセージまで進める（upTo が空なら最新まで）。
+	// 後戻りはしない。進めた後の既読の位置を返す（メッセージが無ければ空）。
+	MarkRead(conversationId, userId, upTo string, at time.Time) (string, error)
 }
 
 type DMUsecase struct {
@@ -63,9 +70,57 @@ func (uc *DMUsecase) Start(me model.Member, itemId string) (model.Conversation, 
 	return c, created, err
 }
 
-// List は自分が参加しているやりとり。
+// List は自分が参加しているやりとり（それぞれ未読の数つき）。
+// 未読が数えられなくても一覧は返す（unread_count は 0）。sql/009 を流す前に backend を出しても、壊れるのは未読だけにするため。
 func (uc *DMUsecase) List(me model.Member) ([]model.Conversation, error) {
-	return uc.Store.ListFor(me.Id)
+	cs, err := uc.Store.ListFor(me.Id)
+	if err != nil {
+		return nil, err
+	}
+	counts, err := uc.Store.UnreadCounts(me.Id)
+	if err != nil {
+		log.Printf("fail: unread counts, %v", err)
+		return cs, nil
+	}
+	for i := range cs {
+		cs[i].UnreadCount = counts[cs[i].Id]
+	}
+	return cs, nil
+}
+
+// Unread は自分の未読の合計（ナビの 💬 に出す数）。
+func (uc *DMUsecase) Unread(me model.Member) (model.UnreadRes, error) {
+	counts, err := uc.Store.UnreadCounts(me.Id)
+	if err != nil {
+		return model.UnreadRes{}, err
+	}
+	n := 0
+	for _, c := range counts {
+		n += c
+	}
+	return model.UnreadRes{Count: n}, nil
+}
+
+// MarkRead は会話を開いたとき・新しいメッセージを画面に出したときに呼ぶ。
+// req.LastMessageId（画面に出した最後のメッセージ）までを既読にする。空なら最新まで。
+// 既読の位置は後戻りしない（古い ID を渡しても、それより先に読んだ分は既読のまま）。参加者以外は 403。
+func (uc *DMUsecase) MarkRead(me model.Member, id string, req model.ReadReq) (model.ReadRes, error) {
+	upTo := strings.TrimSpace(req.LastMessageId)
+	if len(upTo) > 26 { // メッセージの ID は ULID（26文字）
+		return model.ReadRes{}, ErrInvalidInput
+	}
+	if err := uc.check(me, id); err != nil {
+		return model.ReadRes{}, err
+	}
+	last, err := uc.Store.MarkRead(id, me.Id, upTo, uc.now())
+	if err != nil {
+		return model.ReadRes{}, err
+	}
+	total, err := uc.Unread(me)
+	if err != nil {
+		return model.ReadRes{}, err
+	}
+	return model.ReadRes{LastReadMessageId: last, UnreadCount: total.Count}, nil
 }
 
 // check は me がやりとり id の参加者かを確かめる。

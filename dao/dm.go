@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"time"
 
 	"hackathon-backend/model"
 	"hackathon-backend/usecase"
@@ -148,4 +149,69 @@ func (d *DMDao) InsertMessage(conversationId string, m model.Message) error {
 		return fmt.Errorf("insert message: %w", err)
 	}
 	return nil
+}
+
+// UnreadCounts は viewerId が参加しているやりとりごとの未読の数（conversation_reads テーブル、sql/009_conversation_reads.sql）。
+// 相手が送ったメッセージのうち、既読の位置より ID が大きいもの（ULID なので ID の順＝送った順）を、1本の SQL でまとめて数える。
+// 既読の行がまだ無いやりとりは、相手のメッセージが全部未読。
+func (d *DMDao) UnreadCounts(viewerId string) (map[string]int, error) {
+	rows, err := d.DB.Query("SELECT m.conversation_id, COUNT(*)"+
+		" FROM conversations c"+
+		" JOIN item i ON i.id = c.item_id"+
+		" JOIN messages m ON m.conversation_id = c.id"+
+		" LEFT JOIN conversation_reads r ON r.conversation_id = c.id AND r.user_id = ?"+
+		" WHERE (c.buyer_id = ? OR i.seller_id = ?)"+
+		" AND m.sender_id <> ?"+
+		" AND m.id > COALESCE(r.last_read_message_id, '')"+
+		" GROUP BY m.conversation_id", viewerId, viewerId, viewerId, viewerId)
+	if err != nil {
+		return nil, fmt.Errorf("db.Query: %w", err)
+	}
+	defer rows.Close()
+	out := map[string]int{}
+	for rows.Next() {
+		var id string
+		var n int
+		if err := rows.Scan(&id, &n); err != nil {
+			return nil, fmt.Errorf("rows.Scan: %w", err)
+		}
+		out[id] = n
+	}
+	return out, rows.Err()
+}
+
+// MarkRead は既読の位置を、やりとり内の upTo 以下で最新のメッセージまで進める（upTo が空なら最新まで）。
+// 実在するメッセージの ID しか入れない（でたらめな ID で先の分まで既読にはできない）。
+// 既にもっと先まで読んでいれば GREATEST でそのまま（後戻りしない）。返り値は進めた後の既読の位置。
+func (d *DMDao) MarkRead(conversationId, userId, upTo string, at time.Time) (string, error) {
+	q := "SELECT MAX(id) FROM messages WHERE conversation_id = ?"
+	args := []any{conversationId}
+	if upTo != "" {
+		q += " AND id <= ?"
+		args = append(args, upTo)
+	}
+	var target sql.NullString
+	if err := d.DB.QueryRow(q, args...).Scan(&target); err != nil {
+		return "", fmt.Errorf("select last message: %w", err)
+	}
+	if target.Valid {
+		_, err := d.DB.Exec("INSERT INTO conversation_reads (user_id, conversation_id, last_read_message_id, updated_at)"+
+			" VALUES (?, ?, ?, ?)"+
+			" ON DUPLICATE KEY UPDATE last_read_message_id = GREATEST(last_read_message_id, VALUES(last_read_message_id)),"+
+			" updated_at = VALUES(updated_at)",
+			userId, conversationId, target.String, at)
+		if err != nil {
+			return "", fmt.Errorf("upsert read: %w", err)
+		}
+	}
+	var last string
+	err := d.DB.QueryRow("SELECT last_read_message_id FROM conversation_reads WHERE user_id = ? AND conversation_id = ?",
+		userId, conversationId).Scan(&last)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("select read: %w", err)
+	}
+	return last, nil
 }
