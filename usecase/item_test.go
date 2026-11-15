@@ -1,6 +1,7 @@
 package usecase
 
 import (
+	"context"
 	"errors"
 	"strings"
 	"testing"
@@ -9,21 +10,47 @@ import (
 	"hackathon-backend/model"
 )
 
+// fakeItemStore は商品といいねをメモリで持つ（DAO と同じく、一覧は hidden を除き、liked は viewer で計算する）。
 type fakeItemStore struct {
 	items   []model.Item
-	keyword string // FindAll に渡されたキーワード
+	keyword string          // FindAll に渡されたキーワード
+	query   model.ItemQuery // FindAll に渡された条件
+	viewer  string          // FindAll・FindById に渡された viewer
+	likes   []fakeLike
 	err     error
 }
 
-func (f *fakeItemStore) FindAll(keyword string) ([]model.Item, error) {
-	f.keyword = keyword
-	return append([]model.Item{}, f.items...), f.err
+type fakeLike struct{ user, item string }
+
+func (f *fakeItemStore) withLikes(it model.Item, viewer string) model.Item {
+	it.LikeCount, it.Liked = 0, false
+	for _, l := range f.likes {
+		if l.item == it.Id {
+			it.LikeCount++
+			if l.user == viewer {
+				it.Liked = true
+			}
+		}
+	}
+	return it
 }
 
-func (f *fakeItemStore) FindById(id string) (model.Item, error) {
+func (f *fakeItemStore) FindAll(q model.ItemQuery) ([]model.Item, error) {
+	f.keyword, f.viewer, f.query = q.Keyword, q.ViewerId, q
+	out := []model.Item{}
+	for _, it := range f.items {
+		if !it.IsHidden() {
+			out = append(out, f.withLikes(it, q.ViewerId))
+		}
+	}
+	return out, f.err
+}
+
+func (f *fakeItemStore) FindById(id, viewer string) (model.Item, error) {
+	f.viewer = viewer
 	for _, it := range f.items {
 		if it.Id == id {
-			return it, nil
+			return f.withLikes(it, viewer), nil
 		}
 	}
 	return model.Item{}, model.ErrNotFound
@@ -72,7 +99,7 @@ func TestCreateItemValidation(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			store := &fakeItemStore{}
 			uc := &ItemUsecase{Store: store}
-			res, err := uc.Create(testSeller, c.req)
+			res, err := uc.Create(context.Background(), testSeller, c.req)
 			if c.ok {
 				if err != nil || len(res.Id) != 26 {
 					t.Fatalf("want ok with 26-char id, got id=%q err=%v", res.Id, err)
@@ -96,7 +123,7 @@ func TestCreateItemSetsFields(t *testing.T) {
 	store := &fakeItemStore{}
 	fixed := time.Date(2026, 11, 1, 12, 0, 0, 500, time.UTC)
 	uc := &ItemUsecase{Store: store, Now: func() time.Time { return fixed }}
-	if _, err := uc.Create(testSeller, model.ItemCreateReq{Title: "  机  ", Description: " 脚にキズ ", Price: 3000}); err != nil {
+	if _, err := uc.Create(context.Background(), testSeller, model.ItemCreateReq{Title: "  机  ", Description: " 脚にキズ ", Price: 3000}); err != nil {
 		t.Fatal(err)
 	}
 	got := store.items[0]
@@ -114,7 +141,7 @@ func TestCreateItemSetsFields(t *testing.T) {
 func TestCreateItemStoreError(t *testing.T) {
 	boom := errors.New("db down")
 	uc := &ItemUsecase{Store: &fakeItemStore{err: boom}}
-	if _, err := uc.Create(testSeller, model.ItemCreateReq{Title: "a", Price: 1000}); !errors.Is(err, boom) {
+	if _, err := uc.Create(context.Background(), testSeller, model.ItemCreateReq{Title: "a", Price: 1000}); !errors.Is(err, boom) {
 		t.Fatalf("DB のエラーはそのまま返す: got %v", err)
 	}
 }
@@ -122,7 +149,7 @@ func TestCreateItemStoreError(t *testing.T) {
 func TestListTrimsKeyword(t *testing.T) {
 	store := &fakeItemStore{}
 	uc := &ItemUsecase{Store: store}
-	if _, err := uc.List("  本  "); err != nil {
+	if _, err := uc.List(nil, model.ItemQuery{Keyword: "  本  "}); err != nil {
 		t.Fatal(err)
 	}
 	if store.keyword != "本" {
@@ -130,15 +157,49 @@ func TestListTrimsKeyword(t *testing.T) {
 	}
 }
 
+// 値段の範囲：負は 400、上限より上は上限に収め、min>max は入れ替える（0 は指定なしのまま）。
+func TestListPriceRange(t *testing.T) {
+	cases := []struct {
+		name             string
+		min, max         int
+		wantMin, wantMax int
+		wantErr          error
+	}{
+		{"指定なし", 0, 0, 0, 0, nil},
+		{"以下だけ", 0, 3000, 0, 3000, nil},
+		{"以上だけ", 10000, 0, 10000, 0, nil},
+		{"逆なら入れ替える", 3000, 1000, 1000, 3000, nil},
+		{"上限より上は上限", 0, 50_000_000, 0, ItemPriceMax, nil},
+		{"負は 400", -1, 0, 0, 0, ErrInvalidInput},
+		{"負は 400（上）", 0, -5, 0, 0, ErrInvalidInput},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			store := &fakeItemStore{}
+			uc := &ItemUsecase{Store: store}
+			_, err := uc.List(&model.Member{Id: "V"}, model.ItemQuery{Keyword: " 本 ", MinPrice: c.min, MaxPrice: c.max, ViewerId: "偽物"})
+			if !errors.Is(err, c.wantErr) {
+				t.Fatalf("err: got %v, want %v", err, c.wantErr)
+			}
+			if c.wantErr != nil {
+				return
+			}
+			if store.query.MinPrice != c.wantMin || store.query.MaxPrice != c.wantMax || store.query.Keyword != "本" || store.query.ViewerId != "V" {
+				t.Errorf("DB に渡す条件: %+v", store.query)
+			}
+		})
+	}
+}
+
 func TestGetItem(t *testing.T) {
 	uc := &ItemUsecase{Store: &fakeItemStore{items: []model.Item{{Id: "X1", Title: "a"}}}}
-	if it, err := uc.Get("X1"); err != nil || it.Title != "a" {
+	if it, err := uc.Get(nil, "X1"); err != nil || it.Title != "a" {
 		t.Fatalf("got %+v, %v", it, err)
 	}
-	if _, err := uc.Get("nope"); !errors.Is(err, model.ErrNotFound) {
+	if _, err := uc.Get(nil, "nope"); !errors.Is(err, model.ErrNotFound) {
 		t.Fatalf("want ErrNotFound, got %v", err)
 	}
-	if _, err := uc.Get(""); !errors.Is(err, ErrInvalidInput) {
+	if _, err := uc.Get(nil, ""); !errors.Is(err, ErrInvalidInput) {
 		t.Fatalf("want ErrInvalidInput, got %v", err)
 	}
 }
@@ -148,10 +209,10 @@ var testSeller = model.Member{Id: "01JBXSELLER000000000000000", DisplayName: "ot
 func TestCreateItemNeedsSeller(t *testing.T) {
 	store := &fakeItemStore{}
 	uc := &ItemUsecase{Store: store}
-	if _, err := uc.Create(model.Member{}, model.ItemCreateReq{Title: "a", Price: 1000}); !errors.Is(err, ErrInvalidInput) {
+	if _, err := uc.Create(context.Background(), model.Member{}, model.ItemCreateReq{Title: "a", Price: 1000}); !errors.Is(err, ErrInvalidInput) {
 		t.Fatalf("出品者なしは ErrInvalidInput: %v", err)
 	}
-	if _, err := uc.Create(testSeller, model.ItemCreateReq{Title: "a", Price: 1000}); err != nil {
+	if _, err := uc.Create(context.Background(), testSeller, model.ItemCreateReq{Title: "a", Price: 1000}); err != nil {
 		t.Fatal(err)
 	}
 	if s := store.items[0].Seller; s == nil || s.Id != testSeller.Id || s.DisplayName != "ota" {

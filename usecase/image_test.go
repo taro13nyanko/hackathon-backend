@@ -2,6 +2,7 @@ package usecase
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"testing"
 	"time"
@@ -76,14 +77,14 @@ func TestCreateItemWithPhoto(t *testing.T) {
 	store := &fakeItemStore{}
 	uc := &ItemUsecase{Store: store, Images: imgs}
 
-	if _, err := uc.Create(testSeller, model.ItemCreateReq{Title: "机", Price: 1000, PhotoImageId: mine}); err != nil {
+	if _, err := uc.Create(context.Background(), testSeller, model.ItemCreateReq{Title: "机", Price: 1000, PhotoImageId: mine}); err != nil {
 		t.Fatal(err)
 	}
 	if store.items[0].PhotoImageId != mine {
 		t.Errorf("写真を付けること: %+v", store.items[0])
 	}
 	for name, id := range map[string]string{"他人の写真": others, "無い写真": "NOPE"} {
-		if _, err := uc.Create(testSeller, model.ItemCreateReq{Title: "机", Price: 1000, PhotoImageId: id}); !errors.Is(err, ErrInvalidInput) {
+		if _, err := uc.Create(context.Background(), testSeller, model.ItemCreateReq{Title: "机", Price: 1000, PhotoImageId: id}); !errors.Is(err, ErrInvalidInput) {
 			t.Errorf("%s: want ErrInvalidInput, got %v", name, err)
 		}
 	}

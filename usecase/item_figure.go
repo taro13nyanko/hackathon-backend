@@ -28,7 +28,7 @@ func (uc *ItemUsecase) SaveFigure(me model.Member, itemId string, f *Figure) (Fi
 	if itemId == "" || f == nil || uc.Figures == nil {
 		return Figure{}, ErrInvalidInput
 	}
-	it, err := uc.Store.FindById(itemId)
+	it, err := findActive(uc.Store, itemId, me.Id) // 非公開（hidden）の商品には保存できない（404）
 	if err != nil {
 		return Figure{}, err
 	}

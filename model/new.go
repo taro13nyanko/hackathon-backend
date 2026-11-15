@@ -24,17 +24,18 @@ func NewID() string { return ulid.Make().String() }
 
 func stamp(at time.Time) time.Time { return at.Truncate(time.Second) }
 
-// NewItem は出品する商品（出品中の状態で作る）。
+// NewItem は出品する商品（出品中・確認は問題なしの状態で作る。確認の結果は usecase が入れる）。
 func NewItem(title, description string, price int, seller Seller, photoImageId string, at time.Time) Item {
 	return Item{
-		Id:           NewID(),
-		Title:        title,
-		Description:  description,
-		Price:        price,
-		Status:       ItemOnSale,
-		Seller:       &seller,
-		PhotoImageId: photoImageId,
-		CreatedAt:    stamp(at),
+		Id:               NewID(),
+		Title:            title,
+		Description:      description,
+		Price:            price,
+		Status:           ItemOnSale,
+		Seller:           &seller,
+		PhotoImageId:     photoImageId,
+		CreatedAt:        stamp(at),
+		ModerationStatus: ModerationOK,
 	}
 }
 
@@ -43,9 +44,9 @@ func NewImage(ownerId, contentType string, data []byte, at time.Time) Image {
 	return Image{Id: NewID(), OwnerId: ownerId, ContentType: contentType, Data: data, CreatedAt: stamp(at)}
 }
 
-// NewMember はプロフィール登録した利用者。
+// NewMember はプロフィール登録した利用者（ロールは member。管理者は DB で直接決める）。
 func NewMember(firebaseUID, displayName string, at time.Time) Member {
-	return Member{Id: NewID(), FirebaseUID: firebaseUID, DisplayName: displayName, CreatedAt: stamp(at)}
+	return Member{Id: NewID(), FirebaseUID: firebaseUID, DisplayName: displayName, Role: RoleMember, CreatedAt: stamp(at)}
 }
 
 // NewPurchase は買った記録（値段は買う瞬間の商品の値段を、DB のトランザクションの中で入れる）。

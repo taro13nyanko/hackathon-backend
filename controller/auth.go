@@ -62,3 +62,45 @@ func (a *Auth) RequireMember(h func(w http.ResponseWriter, r *http.Request, me m
 		h(w, r, me)
 	})
 }
+
+// RequireAdmin は RequireMember に加えて、管理者（role が admin）かを確かめる。違えば 403 forbidden。
+func (a *Auth) RequireAdmin(h func(w http.ResponseWriter, r *http.Request, me model.Member)) http.HandlerFunc {
+	return a.RequireMember(func(w http.ResponseWriter, r *http.Request, me model.Member) {
+		if !me.IsAdmin() {
+			writeError(w, http.StatusForbidden, "forbidden")
+			return
+		}
+		h(w, r, me)
+	})
+}
+
+// OptionalLogin はログインしなくても使える API 用（商品の一覧・詳細）。
+// Authorization ヘッダがあって有効で、プロフィール登録済みなら本人を渡す。
+// それ以外（ヘッダ無し・トークンが無効・未登録・確かめられない）は、エラーにせず未ログイン（nil）として h を呼ぶ。
+func (a *Auth) OptionalLogin(h func(w http.ResponseWriter, r *http.Request, me *model.Member)) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		h(w, r, a.optionalMember(r))
+	}
+}
+
+func (a *Auth) optionalMember(r *http.Request) *model.Member {
+	token, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
+	if !ok || token == "" {
+		return nil
+	}
+	uid, err := a.Verifier.Verify(r.Context(), token)
+	if err != nil {
+		if !errors.Is(err, auth.ErrInvalidToken) {
+			log.Printf("fail: verify token (optional), %v", err)
+		}
+		return nil
+	}
+	me, err := a.Members.Me(uid)
+	if err != nil {
+		if !errors.Is(err, model.ErrNotFound) {
+			log.Printf("fail: member (optional), %v", err)
+		}
+		return nil
+	}
+	return &me
+}

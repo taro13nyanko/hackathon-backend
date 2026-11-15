@@ -35,7 +35,14 @@ func main() {
 	images := &dao.ImageDao{DB: db}
 	itemDao := &dao.ItemDao{DB: db}
 	// 回数制限（1人あたり。サーバー1台のメモリ内で数える）。画像は合計枚数も DB で数える（usecase/image.go）
-	items := &usecase.ItemUsecase{Store: itemDao, Images: images, Figures: itemDao, Limit: usecase.NewLimiter(10, time.Minute)}
+	// 出品の確認（禁止物・不適切な画像・写真と説明の食い違い）。説明文と同じ軽いモデルで、出力の形（JSON Schema）を決めて判定させる
+	moderator := &usecase.GeminiModerator{Gen: &gemini.Client{
+		Project:    envOr("GOOGLE_CLOUD_PROJECT", projectID),
+		Location:   envOr("GOOGLE_CLOUD_LOCATION", "global"),
+		Model:      envOr("GEMINI_MODEL", "gemini-3.5-flash-lite"),
+		JSONSchema: usecase.ModerationSchema,
+	}}
+	items := &usecase.ItemUsecase{Store: itemDao, Images: images, Figures: itemDao, Moderator: moderator, Limit: usecase.NewLimiter(10, time.Minute)}
 	imageCtrl := &controller.ImageController{Usecase: &usecase.ImageUsecase{Store: images, Limit: usecase.NewLimiter(10, time.Minute)}, Auth: authz}
 	itemCtrl := &controller.ItemController{Usecase: items, Auth: authz}
 	meCtrl := &controller.MeController{Usecase: members, Auth: authz}
@@ -79,6 +86,40 @@ func main() {
 		Auth:    authz,
 	}
 
+	// いいね（1人1分60回まで）と、管理者の画面（要確認・非公開の商品）
+	likeCtrl := &controller.LikeController{
+		Usecase: &usecase.LikeUsecase{Store: &dao.LikeDao{DB: db}, Items: itemDao, Limit: usecase.NewLimiter(usecase.LikePerMinute, time.Minute)},
+		Auth:    authz,
+	}
+	adminCtrl := &controller.AdminController{Usecase: &usecase.AdminUsecase{Store: itemDao, Items: itemDao}, Auth: authz}
+
+	// 音声検索（1人1分10回まで）と商品への質問（自前の RAG、1人1分5回まで）。どちらも説明文と同じ軽いモデルで、出力の形を決める
+	voiceCtrl := &controller.VoiceController{
+		Usecase: &usecase.VoiceUsecase{
+			Gen: &gemini.Client{
+				Project:    envOr("GOOGLE_CLOUD_PROJECT", projectID),
+				Location:   envOr("GOOGLE_CLOUD_LOCATION", "global"),
+				Model:      envOr("GEMINI_MODEL", "gemini-3.5-flash-lite"),
+				JSONSchema: usecase.VoiceSchema,
+			},
+			Limit: usecase.NewLimiter(usecase.VoicePerMinute, time.Minute),
+		},
+		Auth: authz,
+	}
+	askCtrl := &controller.AskController{
+		Usecase: &usecase.AskUsecase{
+			Items: itemDao,
+			Gen: &gemini.Client{
+				Project:    envOr("GOOGLE_CLOUD_PROJECT", projectID),
+				Location:   envOr("GOOGLE_CLOUD_LOCATION", "global"),
+				Model:      envOr("GEMINI_MODEL", "gemini-3.5-flash-lite"),
+				JSONSchema: usecase.AskSchema,
+			},
+			Limit: usecase.NewLimiter(usecase.AskPerMinute, time.Minute),
+		},
+		Auth: authz,
+	}
+
 	// 箱庭の配置（模型をつかんで動かした場所）
 	gardenCtrl := &controller.GardenController{
 		Usecase: &usecase.GardenUsecase{Store: &dao.GardenDao{DB: db}, Limit: usecase.NewLimiter(30, time.Minute)},
@@ -87,6 +128,10 @@ func main() {
 
 	mux := http.NewServeMux()
 	itemCtrl.Register(mux)     // GET/POST /items, GET /items/{id}
+	likeCtrl.Register(mux)     // PUT/DELETE /items/{id}/like, GET /me/likes
+	adminCtrl.Register(mux)    // GET /admin/items, PUT /admin/items/{id}/moderation
+	voiceCtrl.Register(mux)    // POST /search/voice
+	askCtrl.Register(mux)      // POST /items/{id}/ask
 	meCtrl.Register(mux)       // GET/POST /me
 	purchaseCtrl.Register(mux) // POST /items/{id}/purchase, GET /me/items, GET /me/purchases
 	descCtrl.Register(mux)     // POST /items/description

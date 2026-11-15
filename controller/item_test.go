@@ -10,21 +10,38 @@ import (
 	"hackathon-backend/usecase"
 )
 
-type memItemStore struct{ items []model.Item }
+// memItemStore は dao.ItemDao と dao.LikeDao をメモリで真似る（一覧は hidden を除き、liked は viewer で数える）。
+type memItemStore struct {
+	items []model.Item
+	likes [][2]string // {user, item}。後ろほど新しい
+}
 
-func (m *memItemStore) FindAll(keyword string) ([]model.Item, error) {
+func (m *memItemStore) withLikes(it model.Item, viewer string) model.Item {
+	for _, l := range m.likes {
+		if l[1] == it.Id {
+			it.LikeCount++
+			it.Liked = it.Liked || l[0] == viewer
+		}
+	}
+	return it
+}
+
+func (m *memItemStore) FindAll(q model.ItemQuery) ([]model.Item, error) {
 	out := []model.Item{}
 	for _, it := range m.items {
-		if keyword == "" || strings.Contains(it.Title, keyword) || strings.Contains(it.Description, keyword) {
-			out = append(out, it)
+		if it.IsHidden() || (q.MinPrice > 0 && it.Price < q.MinPrice) || (q.MaxPrice > 0 && it.Price > q.MaxPrice) {
+			continue
+		}
+		if q.Keyword == "" || strings.Contains(it.Title, q.Keyword) || strings.Contains(it.Description, q.Keyword) {
+			out = append(out, m.withLikes(it, q.ViewerId))
 		}
 	}
 	return out, nil
 }
-func (m *memItemStore) FindById(id string) (model.Item, error) {
+func (m *memItemStore) FindById(id, viewer string) (model.Item, error) {
 	for _, it := range m.items {
 		if it.Id == id {
-			return it, nil
+			return m.withLikes(it, viewer), nil
 		}
 	}
 	return model.Item{}, model.ErrNotFound
@@ -33,7 +50,7 @@ func (m *memItemStore) FindBySeller(sellerId string) ([]model.Item, error) {
 	out := []model.Item{}
 	for _, it := range m.items {
 		if it.Seller != nil && it.Seller.Id == sellerId {
-			out = append(out, it)
+			out = append(out, m.withLikes(it, sellerId))
 		}
 	}
 	return out, nil
@@ -49,7 +66,7 @@ type memPurchaseStore struct {
 func (m *memPurchaseStore) Buy(p model.Purchase) (model.Purchase, error) {
 	for i := range m.items.items {
 		it := &m.items.items[i]
-		if it.Id != p.Item.Id {
+		if it.Id != p.Item.Id || it.IsHidden() {
 			continue
 		}
 		if it.Seller != nil && it.Seller.Id == p.BuyerId {
@@ -78,15 +95,26 @@ func (m *memPurchaseStore) FindByBuyer(buyerId string) ([]model.Purchase, error)
 // newItemHandler は /items と /me をつないだテスト用サーバー。
 // 偽のトークン確認係は "tok-<uid>" を uid として受け付ける。
 func newItemHandler() http.Handler {
-	members := &usecase.MemberUsecase{Store: &memMemberStore{}}
+	h, _, _ := newAppHandler(nil, nil)
+	return h
+}
+
+// newAppHandler は商品・購入・会員・いいね・管理者・やりとりをつないだテスト用サーバー。
+// mod は出品の確認（nil なら確認しない）、likeLimit はいいねの回数制限（nil なら無し）。
+func newAppHandler(mod usecase.Moderator, likeLimit *usecase.Limiter) (http.Handler, *memItemStore, *memMemberStore) {
+	memberStore := &memMemberStore{}
+	members := &usecase.MemberUsecase{Store: memberStore}
 	a := &Auth{Verifier: fakeVerifier{}, Members: members}
 	mux := http.NewServeMux()
 	itemStore := &memItemStore{}
-	items := &usecase.ItemUsecase{Store: itemStore}
+	items := &usecase.ItemUsecase{Store: itemStore, Moderator: mod}
 	(&ItemController{Usecase: items, Auth: a}).Register(mux)
 	(&PurchaseController{Purchases: &usecase.PurchaseUsecase{Store: &memPurchaseStore{items: itemStore}}, Items: items, Auth: a}).Register(mux)
 	(&MeController{Usecase: members, Auth: a}).Register(mux)
-	return CORS("", mux)
+	(&LikeController{Usecase: &usecase.LikeUsecase{Store: itemStore, Items: itemStore, Limit: likeLimit}, Auth: a}).Register(mux)
+	(&AdminController{Usecase: &usecase.AdminUsecase{Store: itemStore, Items: itemStore}, Auth: a}).Register(mux)
+	(&DMController{Usecase: &usecase.DMUsecase{Store: memDMStore{}, Items: itemStore}, Auth: a}).Register(mux)
+	return CORS("", mux), itemStore, memberStore
 }
 
 func TestItemsFlow(t *testing.T) {

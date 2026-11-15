@@ -11,8 +11,18 @@ type Member struct {
 	Id          string    `json:"id"`
 	FirebaseUID string    `json:"-"` // 外には出さない
 	DisplayName string    `json:"display_name"`
+	Role        string    `json:"role"` // member（既定）か admin（管理者。DB で直接 UPDATE して決める）
 	CreatedAt   time.Time `json:"-"`
 }
+
+// 利用者のロール（users.role、sql/008_ai_features.sql）。
+const (
+	RoleMember = "member"
+	RoleAdmin  = "admin"
+)
+
+// IsAdmin は管理者か（要確認・非公開の商品を見て、公開・非公開を決められる）。
+func (m Member) IsAdmin() bool { return m.Role == RoleAdmin }
 
 // MemberCreateReq は POST /me のリクエストボディ。
 type MemberCreateReq struct {
