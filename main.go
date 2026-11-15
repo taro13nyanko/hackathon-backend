@@ -88,13 +88,13 @@ func main() {
 	}
 	adminCtrl := &controller.AdminController{Usecase: &usecase.AdminUsecase{Store: itemDao, Items: itemDao}, Auth: authz}
 
-	// 音声検索（1人1分10回まで）と商品への質問（自前の RAG、1人1分5回まで）。どちらも説明文と同じ軽いモデルで、出力の形を決める
+	// 音声検索（1人1分10回まで）と商品への質問（自前の RAG、1人1分5回まで）。質問は説明文と同じ軽いモデル、音声検索は文字起こしの精度を優先して最上位モデル（VOICE_MODEL、既定は模型づくりと同じ）を使う
 	voiceCtrl := &controller.VoiceController{
 		Usecase: &usecase.VoiceUsecase{
 			Gen: &gemini.Client{
 				Project:    envOr("GOOGLE_CLOUD_PROJECT", projectID),
 				Location:   envOr("GOOGLE_CLOUD_LOCATION", "global"),
-				Model:      envOr("GEMINI_MODEL", "gemini-3.5-flash-lite"),
+				Model:      envOr("VOICE_MODEL", envOr("FIGURE_MODEL", "gemini-4-argon")),
 				JSONSchema: usecase.VoiceSchema,
 			},
 			Limit: usecase.NewLimiter(usecase.VoicePerMinute, time.Minute),
