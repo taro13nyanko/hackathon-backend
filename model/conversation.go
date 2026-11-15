@@ -38,6 +38,12 @@ type ReadRes struct {
 	UnreadCount       int    `json:"unread_count"`         // 既読にした後の、自分の未読の合計（ナビの数）
 }
 
+// PeerReadRes は GET /conversations/{id}/read の返り値。
+// 自分が送ったメッセージのうち、ID がこれ以下のものを相手が読んだ（ULID なので ID の順＝送った順）。画面の「既読」用。
+type PeerReadRes struct {
+	PeerLastReadMessageId string `json:"peer_last_read_message_id"` // 相手の既読の位置（まだ読んでいなければ空）
+}
+
 // UnreadRes は GET /me/unread の返り値。
 type UnreadRes struct {
 	Count int `json:"count"` // 自分のやりとり全部の未読の合計
