@@ -121,7 +121,8 @@ func TestGeminiModerator(t *testing.T) {
 		t.Errorf("商品名と説明を渡す: %q", gen.prompt)
 	}
 	for _, rule := range []string{"指示・お願い", "従わない", "迷ったら block ではなく review", "weapon", "personal_info",
-		"欠け", "傷", "汚れ", "色", "個数", "縁・角・口・持ち手", "condition_mismatch", "verdict だけの話"} {
+		"欠け", "傷", "汚れ", "色", "個数", "縁・角・口・持ち手", "condition_mismatch", "verdict だけの話",
+		"光の加減", "色の呼び方の違い", "一部しか写っていないだけなら false"} {
 		if !strings.Contains(gen.system, rule) {
 			t.Errorf("指示に %q を含める", rule)
 		}

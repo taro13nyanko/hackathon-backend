@@ -13,9 +13,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -35,6 +37,8 @@ type Client struct {
 	// temperature は変えない（Gemini 3 系は下げないよう勧められているため）
 	Seed            *int   // 乱数の種。固定すると、同じ入力で結果がそろいやすくなる
 	MediaResolution string // 画像を読む細かさ: MEDIA_RESOLUTION_LOW / MEDIUM / HIGH。空なら付けない（モデルの既定）
+	// noMediaRes は mediaResolution を付けて 400 が返ったあと true になる。以後はこの Client では付けない
+	noMediaRes atomic.Bool
 
 	HTTP     *http.Client
 	Endpoint string                                    // テスト用。空なら Vertex AI
@@ -64,7 +68,16 @@ func (c *Client) GenerateFromImages(ctx context.Context, system, prompt string, 
 		parts = append(parts, map[string]any{"inlineData": map[string]string{"mimeType": img.MimeType, "data": base64.StdEncoding.EncodeToString(img.Data)}})
 	}
 	parts = append(parts, map[string]any{"text": prompt})
-	return c.generate(ctx, system, parts, c.imageConfig())
+	text, err := c.generate(ctx, system, parts, c.imageConfig())
+	// モデルが mediaResolution を受け付けず 400 を返したときは、外して1回だけ送り直す。
+	// こうしないと、出品の確認がすべて失敗（review）になる。一度 400 になったら、以後は付けない
+	var se *statusError
+	if err != nil && errors.As(err, &se) && se.code == http.StatusBadRequest && c.MediaResolution != "" && !c.noMediaRes.Load() {
+		c.noMediaRes.Store(true)
+		log.Printf("gemini: mediaResolution=%s を受け付けなかったので外して送り直す: %v", c.MediaResolution, err)
+		return c.generate(ctx, system, parts, c.imageConfig())
+	}
+	return text, err
 }
 
 func (c *Client) imageConfig() map[string]any {
@@ -83,7 +96,7 @@ func (c *Client) withOverrides(config map[string]any) map[string]any {
 	if c.Seed != nil {
 		config["seed"] = *c.Seed
 	}
-	if c.MediaResolution != "" {
+	if c.MediaResolution != "" && !c.noMediaRes.Load() {
 		config["mediaResolution"] = c.MediaResolution
 	}
 	return config
@@ -112,7 +125,7 @@ func (c *Client) generate(ctx context.Context, system string, parts []map[string
 	defer res.Body.Close()
 	raw, _ := io.ReadAll(io.LimitReader(res.Body, 1<<20))
 	if res.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("gemini: status %d: %s", res.StatusCode, truncate(string(raw), 300))
+		return "", &statusError{code: res.StatusCode, body: truncate(string(raw), 300)}
 	}
 	var out struct {
 		Candidates []struct {
@@ -143,6 +156,14 @@ func (c *Client) generate(ctx context.Context, system string, parts []map[string
 	}
 	return text, nil
 }
+
+// statusError は Gemini が 200 以外を返したとき。code で 400 かどうかを見分ける。
+type statusError struct {
+	code int
+	body string
+}
+
+func (e *statusError) Error() string { return fmt.Sprintf("gemini: status %d: %s", e.code, e.body) }
 
 func (c *Client) url() string {
 	if c.Endpoint != "" {
