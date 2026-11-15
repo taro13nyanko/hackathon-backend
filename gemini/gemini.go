@@ -31,6 +31,11 @@ type Client struct {
 	ThinkingLevel string         // 考える深さ: low / medium / high（対応モデルのみ）
 	JSONSchema    map[string]any // 出力の形（responseSchema）。形を外れた出力を減らす
 
+	// 生成設定の上書き（今は出品の確認だけで使う）。設定したときだけ generationConfig に入れ、未設定なら今までと同じ内容を送る。
+	// temperature は変えない（Gemini 3 系は下げないよう勧められているため）
+	Seed            *int   // 乱数の種。固定すると、同じ入力で結果がそろいやすくなる
+	MediaResolution string // 画像を読む細かさ: MEDIA_RESOLUTION_LOW / MEDIUM / HIGH。空なら付けない（モデルの既定）
+
 	HTTP     *http.Client
 	Endpoint string                                    // テスト用。空なら Vertex AI
 	Token    func(ctx context.Context) (string, error) // テスト用。nil ならメタデータサーバー
@@ -43,7 +48,7 @@ type Client struct {
 // Generate は system（指示）と prompt（入力）を渡して、生成された文章を返す。
 func (c *Client) Generate(ctx context.Context, system, prompt string) (string, error) {
 	return c.generate(ctx, system, []map[string]any{{"text": prompt}},
-		map[string]any{"temperature": 0.4, "maxOutputTokens": 2048})
+		c.withOverrides(map[string]any{"temperature": 0.4, "maxOutputTokens": 2048}))
 }
 
 // Image は Gemini に渡す画像1枚。
@@ -69,6 +74,17 @@ func (c *Client) imageConfig() map[string]any {
 	}
 	if c.JSONSchema != nil {
 		config["responseSchema"] = c.JSONSchema
+	}
+	return c.withOverrides(config)
+}
+
+// withOverrides は Seed・MediaResolution が設定されているときだけ config に足す。
+func (c *Client) withOverrides(config map[string]any) map[string]any {
+	if c.Seed != nil {
+		config["seed"] = *c.Seed
+	}
+	if c.MediaResolution != "" {
+		config["mediaResolution"] = c.MediaResolution
 	}
 	return config
 }
