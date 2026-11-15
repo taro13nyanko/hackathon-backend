@@ -18,8 +18,8 @@ type MemberDao struct {
 func (d *MemberDao) FindByFirebaseUID(uid string) (model.Member, error) {
 	var m model.Member
 	err := d.DB.QueryRow(
-		"SELECT id, firebase_uid, display_name, created_at FROM users WHERE firebase_uid = ?", uid,
-	).Scan(&m.Id, &m.FirebaseUID, &m.DisplayName, &m.CreatedAt)
+		"SELECT id, firebase_uid, display_name, role, created_at FROM users WHERE firebase_uid = ?", uid,
+	).Scan(&m.Id, &m.FirebaseUID, &m.DisplayName, &m.Role, &m.CreatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return model.Member{}, model.ErrNotFound
 	}
@@ -38,8 +38,8 @@ func isDuplicate(err error) bool {
 // Insert は1件登録する。firebase_uid が重複したら model.ErrAlreadyRegistered。
 func (d *MemberDao) Insert(m model.Member) error {
 	_, err := d.DB.Exec(
-		"INSERT INTO users (id, firebase_uid, display_name, created_at) VALUES (?, ?, ?, ?)",
-		m.Id, m.FirebaseUID, m.DisplayName, m.CreatedAt,
+		"INSERT INTO users (id, firebase_uid, display_name, role, created_at) VALUES (?, ?, ?, ?, ?)",
+		m.Id, m.FirebaseUID, m.DisplayName, m.Role, m.CreatedAt,
 	)
 	if isDuplicate(err) {
 		return model.ErrAlreadyRegistered

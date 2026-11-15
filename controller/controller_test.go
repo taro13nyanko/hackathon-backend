@@ -71,8 +71,8 @@ func TestLimitBody(t *testing.T) {
 	if rec := do(h, "POST", "/items", strings.Repeat("a", BodyMax), ""); rec.Code != 200 || got != BodyMax {
 		t.Fatalf("上限ちょうどは読める: %d %d", rec.Code, got)
 	}
-	// 画像と模型づくりは、それぞれのハンドラが自分の上限を付ける
-	for _, p := range []string{"/images", "/figures"} {
+	// 画像・模型づくり・音声検索は、それぞれのハンドラが自分の上限を付ける
+	for _, p := range []string{"/images", "/figures", "/search/voice"} {
 		if rec := do(h, "POST", p, big, ""); rec.Code != 200 || got != len(big) {
 			t.Fatalf("%s は共通の上限の対象外: %d %d", p, rec.Code, got)
 		}

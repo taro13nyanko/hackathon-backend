@@ -45,7 +45,7 @@ func (uc *DMUsecase) Start(me model.Member, itemId string) (model.Conversation, 
 	if itemId == "" {
 		return model.Conversation{}, false, ErrInvalidInput
 	}
-	it, err := uc.Items.FindById(itemId)
+	it, err := findActive(uc.Items, itemId, me.Id) // 非公開（hidden）の商品とはやりとりを始められない（404）
 	if err != nil {
 		return model.Conversation{}, false, err
 	}

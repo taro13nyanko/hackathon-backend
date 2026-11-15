@@ -38,6 +38,9 @@ func TestConstructorsSetIdAndCreatedAt(t *testing.T) {
 	if it.Status != ItemOnSale || it.Seller == nil || it.Seller.Id != "S" || it.Price != 1200 || it.PhotoImageId != "IMG" {
 		t.Errorf("商品は出品中で作り、渡した値を入れる: %+v", it)
 	}
+	if it.ModerationStatus != ModerationOK || mem.Role != RoleMember || mem.IsAdmin() {
+		t.Errorf("商品は確認済み（ok）、会員は member で作る: %q %q", it.ModerationStatus, mem.Role)
+	}
 	if pur.Item.Id != "ITEM" || pur.BuyerId != "BUYER" || conv.BuyerId != "BUYER" || msg.SenderId != "SENDER" || mem.FirebaseUID != "firebase-uid" {
 		t.Errorf("渡した値を入れる")
 	}

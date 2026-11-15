@@ -6,10 +6,11 @@ import "net/http"
 const BodyMax = 256 << 10
 
 // LimitBody はすべての要求の本文を BodyMax までに制限する。
-// 画像（POST /images）と模型づくり（POST /figures）は大きな画像を受けるので、各ハンドラが自分の上限を付ける。
+// 画像（POST /images）・模型づくり（POST /figures）・音声検索（POST /search/voice）は大きな本文を受けるので、
+// 各ハンドラが自分の上限を付ける。
 func LimitBody(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Body != nil && !(r.Method == http.MethodPost && (r.URL.Path == "/images" || r.URL.Path == "/figures")) {
+		if r.Body != nil && !(r.Method == http.MethodPost && (r.URL.Path == "/images" || r.URL.Path == "/figures" || r.URL.Path == "/search/voice")) {
 			r.Body = http.MaxBytesReader(w, r.Body, BodyMax)
 		}
 		next.ServeHTTP(w, r)

@@ -26,11 +26,12 @@ func (d *PurchaseDao) Buy(p model.Purchase) (model.Purchase, error) {
 	}
 	defer tx.Rollback() // Commit の後なら何もしない
 
-	var status string
+	var status, moderation string
 	var sellerId sql.NullString
-	err = tx.QueryRow("SELECT price, status, seller_id FROM item WHERE id = ? FOR UPDATE", p.Item.Id).
-		Scan(&p.Price, &status, &sellerId)
-	if errors.Is(err, sql.ErrNoRows) {
+	err = tx.QueryRow("SELECT price, status, seller_id, moderation_status FROM item WHERE id = ? FOR UPDATE", p.Item.Id).
+		Scan(&p.Price, &status, &sellerId, &moderation)
+	// 管理者が非公開にした商品は買えない（無い商品と同じ 404 にする）
+	if errors.Is(err, sql.ErrNoRows) || moderation == model.ModerationHidden {
 		return model.Purchase{}, model.ErrNotFound
 	}
 	if err != nil {

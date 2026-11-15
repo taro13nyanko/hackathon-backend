@@ -17,7 +17,13 @@ func writeError(w http.ResponseWriter, status int, code string) {
 
 // writeErr は usecase / dao から返ってきたエラーを、HTTP のステータスとコードに変える。
 func writeErr(w http.ResponseWriter, err error) {
+	var prohibited *usecase.ProhibitedError
 	switch {
+	case errors.As(err, &prohibited):
+		// 出品できない物（出品の確認で block）。画面に理由とカテゴリを出す
+		writeJSON(w, http.StatusUnprocessableEntity, map[string]any{
+			"error": "prohibited", "reason": prohibited.Reason, "categories": prohibited.Categories,
+		})
 	case errors.Is(err, usecase.ErrInvalidInput):
 		writeError(w, http.StatusBadRequest, "invalid_input")
 	case errors.Is(err, usecase.ErrTooMany):
