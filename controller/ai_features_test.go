@@ -87,6 +87,10 @@ func (memDMStore) ListFor(string) ([]model.Conversation, error)     { return nil
 func (memDMStore) Participants(string) (string, string, error)      { return "", "", model.ErrNotFound }
 func (memDMStore) Messages(string, string) ([]model.Message, error) { return nil, nil }
 func (memDMStore) InsertMessage(string, model.Message) error        { return nil }
+func (memDMStore) UnreadCounts(string) (map[string]int, error)      { return map[string]int{}, nil }
+func (memDMStore) MarkRead(string, string, string, time.Time) (string, error) {
+	return "", nil
+}
 
 // fakeModerator は商品名で判定を変える偽の確認係。
 type fakeModerator struct{}
