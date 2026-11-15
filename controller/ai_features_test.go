@@ -91,6 +91,7 @@ func (memDMStore) UnreadCounts(string) (map[string]int, error)      { return map
 func (memDMStore) MarkRead(string, string, string, time.Time) (string, error) {
 	return "", nil
 }
+func (memDMStore) LastRead(string, string) (string, error) { return "", nil }
 
 // fakeModerator は商品名で判定を変える偽の確認係。
 type fakeModerator struct{}

@@ -71,6 +71,13 @@ func (f *fakeDMStore) MarkRead(_, user, upTo string, _ time.Time) (string, error
 	return f.reads[user], nil
 }
 
+func (f *fakeDMStore) LastRead(_, user string) (string, error) {
+	if f.unreadErr != nil {
+		return "", f.unreadErr
+	}
+	return f.reads[user], nil
+}
+
 func TestDM(t *testing.T) {
 	items := &fakeItemStore{items: []model.Item{
 		{Id: "I1", Seller: &model.Seller{Id: "s"}},
@@ -193,5 +200,40 @@ func TestDMListWithoutReadsTable(t *testing.T) {
 	}
 	if _, err := uc.MarkRead(model.Member{Id: "b"}, "C1", model.ReadReq{}); err == nil {
 		t.Fatal("既読も失敗を返す（500）")
+	}
+}
+
+// 相手の既読の位置（自分のメッセージに「既読」を付けるため）。
+func TestDMPeerRead(t *testing.T) {
+	store := &fakeDMStore{reads: map[string]string{"b": "01B", "s": "01C"}}
+	uc := &DMUsecase{Store: store}
+	buyer, seller, other := model.Member{Id: "b"}, model.Member{Id: "s"}, model.Member{Id: "x"}
+
+	// 買い手が見ると出品者の位置、出品者が見ると買い手の位置
+	if res, err := uc.PeerRead(buyer, "C1"); err != nil || res.PeerLastReadMessageId != "01C" {
+		t.Fatalf("買い手から見た出品者の既読: %+v %v", res, err)
+	}
+	if res, err := uc.PeerRead(seller, "C1"); err != nil || res.PeerLastReadMessageId != "01B" {
+		t.Fatalf("出品者から見た買い手の既読: %+v %v", res, err)
+	}
+	// 相手がまだ読んでいなければ空
+	delete(store.reads, "s")
+	if res, err := uc.PeerRead(buyer, "C1"); err != nil || res.PeerLastReadMessageId != "" {
+		t.Fatalf("まだ読んでいない: %+v %v", res, err)
+	}
+	// 参加者以外は 403、無いやりとりは 404、ID が空は 400
+	if _, err := uc.PeerRead(other, "C1"); !errors.Is(err, model.ErrForbidden) {
+		t.Fatalf("参加者以外: %v", err)
+	}
+	if _, err := uc.PeerRead(buyer, "C9"); !errors.Is(err, model.ErrNotFound) {
+		t.Fatalf("無いやりとり: %v", err)
+	}
+	if _, err := uc.PeerRead(buyer, ""); !errors.Is(err, ErrInvalidInput) {
+		t.Fatalf("ID が空: %v", err)
+	}
+	// 読めなければ失敗を返す（500）
+	store.unreadErr = errors.New("db down")
+	if _, err := uc.PeerRead(buyer, "C1"); err == nil {
+		t.Fatal("失敗を返す")
 	}
 }

@@ -58,6 +58,7 @@ UTTC ハッカソン用のバックエンド（Go）。Cloud Run で動かし、
 | GET | `/conversations/{id}/messages` | 🔒 メッセージ（古い順）。`?after=<メッセージID>` でそれより新しいものだけ（画面は5秒ごとに呼ぶ）。参加者以外は 403 |
 | POST | `/conversations/{id}/messages` | 🔒 `{"body":"..."}`（1〜1000文字）を送り 201 |
 | PUT | `/conversations/{id}/read` | 🔒 既読にする（会話を開いたとき・新しいメッセージを画面に出したときに呼ぶ）。ボディは省略可、`{"last_message_id":"画面に出した最後のメッセージID"}` ならそこまで、省略なら最新まで → `{"last_read_message_id":"…","unread_count":N}`（N は既読にした後の自分の未読の合計。メッセージがまだ無ければ `last_read_message_id` は空）。既読の位置は後戻りしない・実在するメッセージの ID しか入らない。参加者以外は 403、無いやりとりは 404、壊れた JSON や27文字以上の ID は 400 |
+| GET | `/conversations/{id}/read` | 🔒 相手（自分が買い手なら出品者、出品者なら買い手）がどこまで読んだか `{"peer_last_read_message_id":"…"}`（相手がまだ読んでいなければ空）。自分が送ったメッセージのうち、ID がこれ以下のものに「既読」を付ける（ULID なので ID の順＝送った順）。参加者以外は 403、無いやりとりは 404 |
 | GET | `/me/unread` | 🔒 自分の未読の合計 `{"count":N}`（ナビの 💬 に出す数。`/conversations` の `unread_count` の合計と同じ） |
 | GET | `/admin/items` | 🛡 `?status=review`（既定）か `hidden` の商品（新しい順に100件、理由つき） |
 | PUT | `/admin/items/{id}/moderation` | 🛡 `{"status":"ok" または "hidden","note":"任意、120字"}` → 200 で更新後の商品。note があれば理由を note で上書き。無い商品は 404 |

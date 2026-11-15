@@ -18,6 +18,7 @@ import (
 //	GET  /conversations/{id}/messages     メッセージ（古い順）。?after=<メッセージID> でそれより新しいものだけ
 //	POST /conversations/{id}/messages     送る {"body": "..."}（1〜1000文字）
 //	PUT  /conversations/{id}/read         既読にする {"last_message_id": "任意"} → {"last_read_message_id","unread_count"}
+//	GET  /conversations/{id}/read         相手がどこまで読んだか → {"peer_last_read_message_id"}（自分のメッセージの「既読」用）
 //	GET  /me/unread                       自分の未読の合計 → {"count": N}（ナビの 💬 用）
 //
 // 参加者（買い手と出品者）以外は 403。
@@ -32,6 +33,7 @@ func (c *DMController) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /conversations/{id}/messages", c.Auth.RequireMember(c.messages))
 	mux.HandleFunc("POST /conversations/{id}/messages", c.Auth.RequireMember(c.send))
 	mux.HandleFunc("PUT /conversations/{id}/read", c.Auth.RequireMember(c.read))
+	mux.HandleFunc("GET /conversations/{id}/read", c.Auth.RequireMember(c.peerRead))
 	mux.HandleFunc("GET /me/unread", c.Auth.RequireMember(c.unread))
 }
 
@@ -90,6 +92,16 @@ func (c *DMController) read(w http.ResponseWriter, r *http.Request, me model.Mem
 		return
 	}
 	res, err := c.Usecase.MarkRead(me, r.PathValue("id"), req)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, res)
+}
+
+// peerRead は相手の既読の位置を返す（画面は自分が送ったメッセージのうち、ID がこれ以下のものに「既読」を付ける）。
+func (c *DMController) peerRead(w http.ResponseWriter, r *http.Request, me model.Member) {
+	res, err := c.Usecase.PeerRead(me, r.PathValue("id"))
 	if err != nil {
 		writeErr(w, err)
 		return

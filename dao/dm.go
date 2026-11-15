@@ -215,3 +215,18 @@ func (d *DMDao) MarkRead(conversationId, userId, upTo string, at time.Time) (str
 	}
 	return last, nil
 }
+
+// LastRead は userId の既読の位置（conversation_reads の last_read_message_id）。行が無ければ空。
+// 参加者かどうかは usecase が先に確かめる。
+func (d *DMDao) LastRead(conversationId, userId string) (string, error) {
+	var last string
+	err := d.DB.QueryRow("SELECT last_read_message_id FROM conversation_reads WHERE user_id = ? AND conversation_id = ?",
+		userId, conversationId).Scan(&last)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("select read: %w", err)
+	}
+	return last, nil
+}

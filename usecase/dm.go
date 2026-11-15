@@ -31,6 +31,8 @@ type DMStore interface {
 	// MarkRead は userId の既読の位置を、やりとり内の upTo 以下で最新のメッセージまで進める（upTo が空なら最新まで）。
 	// 後戻りはしない。進めた後の既読の位置を返す（メッセージが無ければ空）。
 	MarkRead(conversationId, userId, upTo string, at time.Time) (string, error)
+	// LastRead は userId の既読の位置（やりとり conversationId の中で、どのメッセージまで読んだか）。まだ無ければ空。
+	LastRead(conversationId, userId string) (string, error)
 }
 
 type DMUsecase struct {
@@ -123,19 +125,46 @@ func (uc *DMUsecase) MarkRead(me model.Member, id string, req model.ReadReq) (mo
 	return model.ReadRes{LastReadMessageId: last, UnreadCount: total.Count}, nil
 }
 
+// PeerRead は相手（自分が買い手なら出品者、出品者なら買い手）がどのメッセージまで読んだか（画面の「既読」用）。
+// 自分が送ったメッセージのうち、ID が返した位置以下のものに「既読」を付ける。参加者以外は 403。
+func (uc *DMUsecase) PeerRead(me model.Member, id string) (model.PeerReadRes, error) {
+	buyer, seller, err := uc.participants(me, id)
+	if err != nil {
+		return model.PeerReadRes{}, err
+	}
+	peer := seller
+	if me.Id == seller {
+		peer = buyer
+	}
+	if peer == "" { // 出品者がいない（見本データ）
+		return model.PeerReadRes{}, nil
+	}
+	last, err := uc.Store.LastRead(id, peer)
+	if err != nil {
+		return model.PeerReadRes{}, err
+	}
+	return model.PeerReadRes{PeerLastReadMessageId: last}, nil
+}
+
 // check は me がやりとり id の参加者かを確かめる。
 func (uc *DMUsecase) check(me model.Member, id string) error {
+	_, _, err := uc.participants(me, id)
+	return err
+}
+
+// participants は me がやりとり id の参加者かを確かめ、2人（買い手と出品者）を返す。
+func (uc *DMUsecase) participants(me model.Member, id string) (buyer, seller string, err error) {
 	if id == "" {
-		return ErrInvalidInput
+		return "", "", ErrInvalidInput
 	}
-	buyer, seller, err := uc.Store.Participants(id)
+	buyer, seller, err = uc.Store.Participants(id)
 	if err != nil {
-		return err
+		return "", "", err
 	}
 	if me.Id != buyer && me.Id != seller {
-		return model.ErrForbidden
+		return "", "", model.ErrForbidden
 	}
-	return nil
+	return buyer, seller, nil
 }
 
 // Messages は afterId より新しいメッセージ（画面は5秒ごとに呼ぶ）。
