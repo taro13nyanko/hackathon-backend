@@ -83,3 +83,109 @@ func TestImageConfig(t *testing.T) {
 		t.Errorf("設定が無ければ付けない: %s", s)
 	}
 }
+
+// 上書き（Seed・MediaResolution）は設定した Client だけが送り、未設定の Client は今までと同じ内容を送る。
+func TestOverridesOnlyWhenSet(t *testing.T) {
+	var got map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		got = nil
+		json.Unmarshal(b, &got)
+		io.WriteString(w, `{"candidates":[{"content":{"parts":[{"text":"{}"}]}}]}`)
+	}))
+	defer srv.Close()
+	tok := func(context.Context) (string, error) { return "tok", nil }
+	img := []Image{{MimeType: "image/png", Data: []byte("abc")}}
+	config := func() map[string]any {
+		gc, _ := got["generationConfig"].(map[string]any)
+		return gc
+	}
+
+	seed := 7
+	set := &Client{Endpoint: srv.URL, Token: tok, Seed: &seed, MediaResolution: "MEDIA_RESOLUTION_HIGH"}
+	if _, err := set.GenerateFromImages(context.Background(), "s", "p", img); err != nil {
+		t.Fatal(err)
+	}
+	gc := config()
+	if gc["seed"] != float64(7) || gc["mediaResolution"] != "MEDIA_RESOLUTION_HIGH" {
+		t.Errorf("設定した Client は seed と mediaResolution を送る: %v", gc)
+	}
+	if gc["temperature"] != 0.5 {
+		t.Errorf("temperature は変えない: %v", gc["temperature"])
+	}
+
+	def := &Client{Endpoint: srv.URL, Token: tok}
+	if _, err := def.GenerateFromImages(context.Background(), "s", "p", img); err != nil {
+		t.Fatal(err)
+	}
+	gc = config()
+	if _, ok := gc["seed"]; ok {
+		t.Errorf("既定の Client は seed を送らない: %v", gc)
+	}
+	if _, ok := gc["mediaResolution"]; ok {
+		t.Errorf("既定の Client は mediaResolution を送らない: %v", gc)
+	}
+	if gc["temperature"] != 0.5 || len(gc) != 3 {
+		t.Errorf("既定の Client は今までと同じ設定（temperature・maxOutputTokens・responseMimeType）: %v", gc)
+	}
+
+	if _, err := def.Generate(context.Background(), "s", "p"); err != nil {
+		t.Fatal(err)
+	}
+	if gc = config(); gc["temperature"] != 0.4 || len(gc) != 2 {
+		t.Errorf("文章の生成も今までと同じ設定: %v", gc)
+	}
+}
+
+// mediaResolution を付けて 400 が返ったら、外して1回だけ送り直す。以後はその Client では付けない。
+func TestMediaResolutionFallback(t *testing.T) {
+	var sent []map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		var body map[string]any
+		json.Unmarshal(b, &body)
+		gc, _ := body["generationConfig"].(map[string]any)
+		sent = append(sent, gc)
+		if _, ok := gc["mediaResolution"]; ok {
+			w.WriteHeader(http.StatusBadRequest)
+			io.WriteString(w, `{"error":{"code":400,"message":"Invalid JSON payload received. Unknown name \"mediaResolution\""}}`)
+			return
+		}
+		io.WriteString(w, `{"candidates":[{"content":{"parts":[{"text":"{}"}]}}]}`)
+	}))
+	defer srv.Close()
+	seed := 1
+	c := &Client{Endpoint: srv.URL, Token: func(context.Context) (string, error) { return "tok", nil }, Seed: &seed, MediaResolution: "MEDIA_RESOLUTION_HIGH"}
+	img := []Image{{MimeType: "image/png", Data: []byte("abc")}}
+	if text, err := c.GenerateFromImages(context.Background(), "s", "p", img); err != nil || text != "{}" {
+		t.Fatalf("外して送り直せば読める: %q %v", text, err)
+	}
+	if len(sent) != 2 {
+		t.Fatalf("送るのは2回（付けて1回・外して1回）: %d", len(sent))
+	}
+	if _, ok := sent[1]["mediaResolution"]; ok || sent[1]["seed"] != float64(1) {
+		t.Errorf("送り直しは mediaResolution だけ外し、seed は残す: %v", sent[1])
+	}
+	if _, err := c.GenerateFromImages(context.Background(), "s", "p", img); err != nil || len(sent) != 3 {
+		t.Fatalf("2回目以降は最初から外して1回で済む: %d %v", len(sent), err)
+	}
+	if _, ok := sent[2]["mediaResolution"]; ok {
+		t.Errorf("一度 400 になったら以後は付けない: %v", sent[2])
+	}
+}
+
+// mediaResolution を付けていない Client の 400 は、送り直さずにそのままエラーにする。
+func TestNoRetryWithoutMediaResolution(t *testing.T) {
+	calls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.WriteHeader(http.StatusBadRequest)
+		io.WriteString(w, `{"error":{"code":400}}`)
+	}))
+	defer srv.Close()
+	c := &Client{Endpoint: srv.URL, Token: func(context.Context) (string, error) { return "tok", nil }}
+	_, err := c.GenerateFromImages(context.Background(), "s", "p", []Image{{MimeType: "image/png", Data: []byte("abc")}})
+	if err == nil || !strings.Contains(err.Error(), "status 400") || calls != 1 {
+		t.Errorf("400 はそのままエラー・送るのは1回: %v %d", err, calls)
+	}
+}

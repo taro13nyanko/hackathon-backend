@@ -36,12 +36,7 @@ func main() {
 	itemDao := &dao.ItemDao{DB: db}
 	// 回数制限（1人あたり。サーバー1台のメモリ内で数える）。画像は合計枚数も DB で数える（usecase/image.go）
 	// 出品の確認（禁止物・不適切な画像・写真と説明の食い違い）。説明文と同じ軽いモデルで、出力の形（JSON Schema）を決めて判定させる
-	moderator := &usecase.GeminiModerator{Gen: &gemini.Client{
-		Project:    envOr("GOOGLE_CLOUD_PROJECT", projectID),
-		Location:   envOr("GOOGLE_CLOUD_LOCATION", "global"),
-		Model:      envOr("GEMINI_MODEL", "gemini-3.5-flash-lite"),
-		JSONSchema: usecase.ModerationSchema,
-	}}
+	moderator := &usecase.GeminiModerator{Gen: moderationClient(projectID)}
 	items := &usecase.ItemUsecase{Store: itemDao, Images: images, Figures: itemDao, Moderator: moderator, Limit: usecase.NewLimiter(10, time.Minute)}
 	imageCtrl := &controller.ImageController{Usecase: &usecase.ImageUsecase{Store: images, Limit: usecase.NewLimiter(10, time.Minute)}, Auth: authz}
 	itemCtrl := &controller.ItemController{Usecase: items, Auth: authz}
@@ -181,6 +176,23 @@ func main() {
 		log.Fatal(err)
 	}
 	log.Println("success: server stopped, closing DB")
+}
+
+// moderationSeed は出品の確認で使う乱数の種（固定）。
+const moderationSeed = 1
+
+// moderationClient は出品の確認用の Gemini Client を作る。
+// 同じ入力で判定がばらつかないよう乱数の種を固定し、小さな欠けも見えるよう画像は細かく読ませる（この Client だけ）。
+func moderationClient(projectID string) *gemini.Client {
+	seed := moderationSeed
+	return &gemini.Client{
+		Project:         envOr("GOOGLE_CLOUD_PROJECT", projectID),
+		Location:        envOr("GOOGLE_CLOUD_LOCATION", "global"),
+		Model:           envOr("GEMINI_MODEL", "gemini-3.5-flash-lite"),
+		JSONSchema:      usecase.ModerationSchema,
+		Seed:            &seed,
+		MediaResolution: "MEDIA_RESOLUTION_HIGH",
+	}
 }
 
 func envOr(key, def string) string {

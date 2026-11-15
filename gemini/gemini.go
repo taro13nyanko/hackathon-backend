@@ -13,9 +13,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -31,6 +33,13 @@ type Client struct {
 	ThinkingLevel string         // 考える深さ: low / medium / high（対応モデルのみ）
 	JSONSchema    map[string]any // 出力の形（responseSchema）。形を外れた出力を減らす
 
+	// 生成設定の上書き（今は出品の確認だけで使う）。設定したときだけ generationConfig に入れ、未設定なら今までと同じ内容を送る。
+	// temperature は変えない（Gemini 3 系は下げないよう勧められているため）
+	Seed            *int   // 乱数の種。固定すると、同じ入力で結果がそろいやすくなる
+	MediaResolution string // 画像を読む細かさ: MEDIA_RESOLUTION_LOW / MEDIUM / HIGH。空なら付けない（モデルの既定）
+	// noMediaRes は mediaResolution を付けて 400 が返ったあと true になる。以後はこの Client では付けない
+	noMediaRes atomic.Bool
+
 	HTTP     *http.Client
 	Endpoint string                                    // テスト用。空なら Vertex AI
 	Token    func(ctx context.Context) (string, error) // テスト用。nil ならメタデータサーバー
@@ -43,7 +52,7 @@ type Client struct {
 // Generate は system（指示）と prompt（入力）を渡して、生成された文章を返す。
 func (c *Client) Generate(ctx context.Context, system, prompt string) (string, error) {
 	return c.generate(ctx, system, []map[string]any{{"text": prompt}},
-		map[string]any{"temperature": 0.4, "maxOutputTokens": 2048})
+		c.withOverrides(map[string]any{"temperature": 0.4, "maxOutputTokens": 2048}))
 }
 
 // Image は Gemini に渡す画像1枚。
@@ -59,7 +68,16 @@ func (c *Client) GenerateFromImages(ctx context.Context, system, prompt string, 
 		parts = append(parts, map[string]any{"inlineData": map[string]string{"mimeType": img.MimeType, "data": base64.StdEncoding.EncodeToString(img.Data)}})
 	}
 	parts = append(parts, map[string]any{"text": prompt})
-	return c.generate(ctx, system, parts, c.imageConfig())
+	text, err := c.generate(ctx, system, parts, c.imageConfig())
+	// モデルが mediaResolution を受け付けず 400 を返したときは、外して1回だけ送り直す。
+	// こうしないと、出品の確認がすべて失敗（review）になる。一度 400 になったら、以後は付けない
+	var se *statusError
+	if err != nil && errors.As(err, &se) && se.code == http.StatusBadRequest && c.MediaResolution != "" && !c.noMediaRes.Load() {
+		c.noMediaRes.Store(true)
+		log.Printf("gemini: mediaResolution=%s を受け付けなかったので外して送り直す: %v", c.MediaResolution, err)
+		return c.generate(ctx, system, parts, c.imageConfig())
+	}
+	return text, err
 }
 
 func (c *Client) imageConfig() map[string]any {
@@ -69,6 +87,17 @@ func (c *Client) imageConfig() map[string]any {
 	}
 	if c.JSONSchema != nil {
 		config["responseSchema"] = c.JSONSchema
+	}
+	return c.withOverrides(config)
+}
+
+// withOverrides は Seed・MediaResolution が設定されているときだけ config に足す。
+func (c *Client) withOverrides(config map[string]any) map[string]any {
+	if c.Seed != nil {
+		config["seed"] = *c.Seed
+	}
+	if c.MediaResolution != "" && !c.noMediaRes.Load() {
+		config["mediaResolution"] = c.MediaResolution
 	}
 	return config
 }
@@ -96,7 +125,7 @@ func (c *Client) generate(ctx context.Context, system string, parts []map[string
 	defer res.Body.Close()
 	raw, _ := io.ReadAll(io.LimitReader(res.Body, 1<<20))
 	if res.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("gemini: status %d: %s", res.StatusCode, truncate(string(raw), 300))
+		return "", &statusError{code: res.StatusCode, body: truncate(string(raw), 300)}
 	}
 	var out struct {
 		Candidates []struct {
@@ -127,6 +156,14 @@ func (c *Client) generate(ctx context.Context, system string, parts []map[string
 	}
 	return text, nil
 }
+
+// statusError は Gemini が 200 以外を返したとき。code で 400 かどうかを見分ける。
+type statusError struct {
+	code int
+	body string
+}
+
+func (e *statusError) Error() string { return fmt.Sprintf("gemini: status %d: %s", e.code, e.body) }
 
 func (c *Client) url() string {
 	if c.Endpoint != "" {

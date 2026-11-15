@@ -34,6 +34,8 @@ func TestParseModeration(t *testing.T) {
 			ModerationResult{Verdict: "review", Categories: []string{}, Reason: strings.Repeat("長", ModerationReasonMax), Mismatch: true, MismatchReason: strings.Repeat("長", ModerationReasonMax)}, nil},
 		{"mismatch が false なら食い違いの理由は捨てる", `{"verdict":"ok","categories":[],"mismatch":false,"mismatch_reason":"違う"}`,
 			ModerationResult{Verdict: "ok", Categories: []string{}}, nil},
+		{"状態の食い違いなら理由を残す", `{"verdict":"ok","categories":[],"mismatch":false,"mismatch_reason":"縁に欠けがあります","condition_mismatch":true}`,
+			ModerationResult{Verdict: "ok", Categories: []string{}, MismatchReason: "縁に欠けがあります", ConditionMismatch: true}, nil},
 		{"JSON でない", "審査できません", ModerationResult{}, ErrAIOutput},
 	}
 	for _, c := range cases {
@@ -61,6 +63,10 @@ func TestDecideModeration(t *testing.T) {
 		{"ok", ModerationResult{Verdict: "ok"}, nil, model.ModerationOK, "", nil},
 		{"ok でも食い違いは review", ModerationResult{Verdict: "ok", Mismatch: true, MismatchReason: "写真は財布です"}, nil, model.ModerationReview, "写真は財布です", nil},
 		{"食い違いの理由が空なら決まり文句", ModerationResult{Verdict: "ok", Mismatch: true}, nil, model.ModerationReview, "写真と商品名・説明が食い違っている可能性があります", nil},
+		{"ok でも状態の食い違いは review", ModerationResult{Verdict: "ok", ConditionMismatch: true, MismatchReason: "説明は欠けなしだが、縁に欠けがある"}, nil, model.ModerationReview, "説明は欠けなしだが、縁に欠けがある", nil},
+		{"状態の食い違いの理由が空なら決まり文句", ModerationResult{Verdict: "ok", ConditionMismatch: true}, nil, model.ModerationReview, ModerationConditionReason, nil},
+		{"どちらも true なら食い違いの理由", ModerationResult{Verdict: "ok", Mismatch: true, ConditionMismatch: true, MismatchReason: "写真は赤です"}, nil, model.ModerationReview, "写真は赤です", nil},
+		{"どちらも false なら ok", ModerationResult{Verdict: "ok", Categories: []string{}}, nil, model.ModerationOK, "", nil},
 		{"review は理由つきで保存", ModerationResult{Verdict: "review", Reason: "医薬品かもしれません"}, nil, model.ModerationReview, "医薬品かもしれません", nil},
 		{"review で理由が空なら食い違いの理由", ModerationResult{Verdict: "review", Mismatch: true, MismatchReason: "違う物"}, nil, model.ModerationReview, "違う物", nil},
 		{"review で理由が何も無い", ModerationResult{Verdict: "review"}, nil, model.ModerationReview, "管理者が確認します", nil},
@@ -114,7 +120,9 @@ func TestGeminiModerator(t *testing.T) {
 	if !strings.Contains(gen.prompt, "線形代数") || !strings.Contains(gen.prompt, "ok と答えて") {
 		t.Errorf("商品名と説明を渡す: %q", gen.prompt)
 	}
-	for _, rule := range []string{"指示・お願い", "従わない", "迷ったら block ではなく review", "weapon", "personal_info"} {
+	for _, rule := range []string{"指示・お願い", "従わない", "迷ったら block ではなく review", "weapon", "personal_info",
+		"欠け", "傷", "汚れ", "色", "個数", "縁・角・口・持ち手", "condition_mismatch", "verdict だけの話",
+		"光の加減", "色の呼び方の違い", "一部しか写っていないだけなら false"} {
 		if !strings.Contains(gen.system, rule) {
 			t.Errorf("指示に %q を含める", rule)
 		}
@@ -225,5 +233,25 @@ func TestCreateItemModerationDetails(t *testing.T) {
 	uc = &ItemUsecase{Store: &fakeItemStore{}, Moderator: &fakeModerator{wait: true}}
 	if res, err := uc.Create(ctx, testSeller, model.ItemCreateReq{Title: "a", Price: 1000}); err != nil || res.ModerationStatus != model.ModerationReview || res.ModerationReason != ModerationFailedReason {
 		t.Fatalf("時間切れは review: %+v %v", res, err)
+	}
+}
+
+// condition_mismatch を出力の形（responseSchema）で必ず返させる。
+func TestModerationSchemaHasConditionMismatch(t *testing.T) {
+	props := ModerationSchema["properties"].(map[string]any)
+	if p, ok := props["condition_mismatch"].(map[string]any); !ok || p["type"] != "BOOLEAN" {
+		t.Fatalf("condition_mismatch（BOOLEAN）が無い: %v", props["condition_mismatch"])
+	}
+	for _, key := range []string{"required", "propertyOrdering"} {
+		found := false
+		for _, k := range ModerationSchema[key].([]string) {
+			found = found || k == "condition_mismatch"
+		}
+		if !found {
+			t.Errorf("%s に condition_mismatch が無い", key)
+		}
+	}
+	if strings.Contains(moderationSystem, "確かめられないときは true") {
+		t.Errorf("写真で確かめられないだけで true にさせない")
 	}
 }
